@@ -117,7 +117,7 @@ repl args = do
        lift $ catchErrors $ compileFiles args
        s <- lift get
        when (inter s) $ liftIO $ putStrLn
-         (  "Entorno interactivo para LD4.\n"
+         (  "Entorno interactivo para FD4.\n"
          ++ "Escriba :? para recibir ayuda.")
        loop
   where loop = do
