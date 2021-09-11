@@ -8,7 +8,7 @@ Stability   : experimental
 
 -}
 
-module Parse (tm, Parse.parse, decl, runP, P, program, declOrTm) where
+module Parse (tm, Parse.parse, decl, runP, P, program, declOrTm, parseDecl) where
 
 import Prelude hiding ( const )
 import Lang
@@ -162,16 +162,12 @@ fix = do i <- getPos
 letexp :: P SNTerm
 letexp = do i <- getPos
             reserved "let"
-            (do (v,ty) <- binding
-                letexp' i v ty
-                <|>
-                do (v, ty) <- parens binding
-                   letexp' i v ty)
-         where letexp' i v ty = do reservedOp "="  
-                                   def <- expr
-                                   reserved "in"
-                                   body <- expr
-                                   return (SLet i v ty def body)
+            (v,ty) <- parens binding <|> binding
+            reservedOp "="  
+            def <- expr
+            reserved "in"
+            body <- expr
+            return (SLet i v ty def body)
 
 -- TODO: ver tema de los args
 letexpfun :: P SNTerm
@@ -181,30 +177,61 @@ letexpfun = do i <- getPos
                    letexpfun' i True
                    <|>
                    letexpfun' i False)
-            where letexpfun' i b = do f <- var
-                                      args <- many (parens multibinding)
-                                      reservedOp ":"
-                                      t <- typeP
-                                      reservedOp "="
-                                      def <- expr
-                                      reserved "in"
-                                      body <- expr
-                                      return (SLetFun i b f args t def body)
-
+            where letexpfun' i isRec = do f <- var
+                                          args <- many (parens multibinding)
+                                          reservedOp ":"
+                                          t <- typeP
+                                          reservedOp "="
+                                          def <- expr
+                                          reserved "in"
+                                          body <- expr
+                                          if not (null args) -- Verif. de que tenga args
+                                          then return (SLetFun i isRec f args t def body)
+                                          else error ("no args for function: " ++ show f)                             
 
 -- | Parser de términos
 tm :: P SNTerm
-tm = app <|> lam <|> ifz <|> printOp <|> fix <|> letexpfun <|> letexp 
+tm = app <|> lam <|> ifz <|> printOp <|> fix <|> (try letexp <|> letexpfun)
 
 -- | Parser de declaraciones
 decl :: P (Decl SNTerm)
-decl = do 
-     i <- getPos
-     reserved "let"
-     v <- var
-     reservedOp "="
-     t <- expr
-     return (Decl i v t)
+decl = try declvar <|> (try declfunrec <|> declfun)
+
+declvar :: P (Decl SNTerm)
+declvar = do i <- getPos
+             reserved "let"
+             (v,_) <- parens binding <|> binding
+             reservedOp "="  
+             t <- expr
+             return (Decl i v t)
+
+declfun :: P (Decl SNTerm)
+declfun = do i <- getPos
+             reserved "let"
+             v <- var
+             args <- many (parens multibinding)
+             reservedOp ":"
+             typeP
+             reservedOp "="
+             t <- expr
+             return (Decl i v (SLam i args t))
+
+declfunrec :: P (Decl SNTerm)
+declfunrec = do i <- getPos
+                reserved "let"
+                reserved "rec"
+                v <- var
+                args <- many (parens multibinding)
+                reservedOp ":"
+                ty <- typeP
+                reservedOp "="
+                t <- expr
+                case args of
+                    [] -> error ("no args for function: " ++ show v)
+                    (((x : []), ty') : []) -> return (Decl i v ((SFix i v ty x ty' t)))
+                    (((x : xs), ty') : []) -> return (Decl i v ((SFix i v ty x ty' (SLam i [(xs, ty')] t))))
+                    (((x : []), ty') : xss) -> return (Decl i v (SFix i v ty x ty' (SLam i xss t)))
+                    (((x : xs), ty') : xss) -> return (Decl i v ((SFix i v ty x ty' (SLam i ((xs, ty') : xss) t))))                                            
 
 -- | Parser de programas (listas de declaraciones) 
 program :: P [Decl SNTerm]
@@ -224,3 +251,26 @@ parse :: String -> SNTerm
 parse s = case runP expr s "" of
             Right t -> t
             Left e -> error ("no parse: " ++ show s)
+
+parseDecl :: String -> (Decl SNTerm)
+parseDecl s = case runP decl s "" of
+                Right t -> t
+                Left e -> error ("no parse: " ++ show s)
+
+{-
+TEST CASES FOR PARSER:
+
+NO DECLARATIONS
+parse "let f (x:Nat):Nat = x+2 in f 1"
+parse "let (x:Nat) = 2 in x+x"
+parse "let x:Nat = 2 in x+x"
+parse "let rec f (x:Nat):Nat = x+2 in f 1"
+
+DECLARATIONS:
+parseDecl "let (x:Nat) = 2"
+parseDecl "let x:Nat = 2"
+parseDecl "let rec f (x:Nat):Nat = x+2"
+parseDecl "let f (x:Nat):Nat = x+2"
+parseDecl "let rec f (x y:Nat) (z : Nat ):Nat = x+2"
+parseDecl "let rec f (x y:Nat):Nat = x+2"
+-}

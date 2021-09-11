@@ -10,7 +10,7 @@ Este módulo permite elaborar términos y declaraciones para convertirlas desde
 fully named (@NTerm) a locally closed (@Term@) 
 -}
 
-module Elab ( elab, elab_decl ) where
+module Elab ( elab, elab_decl, desugar ) where
 
 import Lang
 import Subst
@@ -42,3 +42,6 @@ elab' env (Let p v vty def body) = Let p v vty (elab' env def) (close v (elab' (
 
 elab_decl :: Decl NTerm -> Decl Term
 elab_decl = fmap elab
+
+desugar :: SNTerm -> NTerm
+desugar = undefined
