@@ -11,10 +11,12 @@ fully named (@NTerm) a locally closed (@Term@) y convertir desde azucarados
 fully name (@SNTerm) a solamente fully named (@NTerm).
 -}
 
-module Elab ( elab, elab_decl, desugar, buildTy ) where
+module Elab ( elab, elab_decl, desugar, buildTy, desugarTy ) where
 
 import Lang
 import Subst
+import Global ( GlEnv(..) )
+import MonadFD4
 
 -- | 'elab' transforma variables ligadas en índices de de Bruijn
 -- en un término dado. 
@@ -79,3 +81,12 @@ buildTy (((x : []), ty) : []) fty = FunTy ty fty
 buildTy (((x : xs), ty) : []) fty = FunTy ty (buildTy [(xs, ty)] fty)
 buildTy (((x : []), ty) : xss) fty = FunTy ty  (buildTy xss fty)
 buildTy (((x : xs), ty) : xss) fty = FunTy ty (buildTy ((xs, ty) : xss) fty)
+
+-- | Dado un tipo azucarado devuelve algo del tipo Ty ??
+desugarTy :: MonadFD4 m => STy -> m Ty
+desugarTy SNatTy = return NatTy
+desugarTy (SFunTy tx ty) = do tx' <- desugar tx
+                              ty' <- desugar ty
+                              return (FunTy tx' ty')
+desugarTy (SDTy n) = do s <z- get
+                        tn <- lookup (s)

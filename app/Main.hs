@@ -31,7 +31,7 @@ import Global ( GlEnv(..) )
 import Errors
 import Lang
 import Parse ( P, tm, program, declOrTm, runP )
-import Elab ( elab, desugar )
+import Elab ( elab, desugar, desugarTy )
 import Eval ( eval )
 import PPrint ( pp , ppTy, ppDecl )
 import MonadFD4
@@ -177,9 +177,11 @@ typecheckDecl (Decl p x t) = do
         return dd
 
 handleDecl ::  MonadFD4 m => Decl SNTerm -> m ()
+handleDecl (Decl p x (SDeclTy i n t)) = do ty <- desugarTy t
+                                           addSTy n ty
 handleDecl d = do
         (Decl p x tt) <- typecheckDecl d
-        te <- eval tt
+        te <- eval tt 
         addDecl (Decl p x te)
 
 data Command = Compile CompileForm

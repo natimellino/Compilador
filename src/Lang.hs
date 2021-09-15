@@ -109,14 +109,14 @@ data STm info var =
   | SIfZ info (STm info var) (STm info var) (STm info var)
   | SLet info Name Ty (STm info var) (STm info var)
   | SLetFun info Bool Name [([Name], Ty)] Ty (STm info var) (STm info var)
+  | SDeclTy info Name STy
   deriving (Show, Functor)
-  --  SDeclTy info Name Ty
 
 type SNTerm = STm Pos Name
 
 -- | AST de tipos azucarados
--- data STy =
---       SNatTy
---     | SFunTy STy STy
---     | SDTy Name
---     deriving (Show,Eq)
+data STy =
+      SNatTy
+    | SFunTy STy STy
+    | SDTy Name
+    deriving (Show,Eq)
