@@ -1,0 +1,17 @@
+TEST CASES FOR PARSER:
+
+TERMS:
+parse "let f (x:Nat):Nat = x+2 in f 1"
+parse "let (x:Nat) = 2 in x+x"
+parse "let x:Nat = 2 in x+x"
+parse "let rec f (x:Nat):Nat = x+2 in f 1"
+
+DECLARATIONS:
+parseDecl "let (x:Nat) = 2"
+parseDecl "let x:Nat = 2"
+parseDecl "let rec f (x:Nat):Nat = x+2"
+parseDecl "let f (x:Nat):Nat = x+2"
+parseDecl "let rec f (x y:Nat) (z : Nat ):Nat = x+2"
+parseDecl "let rec f (x y:Nat):Nat = x+2"
+let rec mult (m n : Nat) : Nat = ifz n then 0 else m + (mult m (n - 1))
+let rec fact (n : Nat) : Nat = ifz n then 1 else mult n (fact (n - 1))

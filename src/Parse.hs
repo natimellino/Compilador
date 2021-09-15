@@ -1,6 +1,6 @@
 {-|
 Module      : Parse
-Description : Define un parser de términos FD40 a términos fully named.
+Description : Define un parser de términos FD40 a términos fully named azucarados.
 Copyright   : (c) Mauro Jaskelioff, Guido Martínez, 2020.
 License     : GPL-3
 Maintainer  : mauro@fceia.unr.edu.ar
@@ -13,6 +13,7 @@ module Parse (tm, Parse.parse, decl, runP, P, program, declOrTm, parseDecl) wher
 import Prelude hiding ( const )
 import Lang
 import Common
+import Elab ( buildTy )
 import Text.Parsec hiding (runP,parse)
 import Data.Char ( isNumber, ord )
 import qualified Text.Parsec.Token as Tok
@@ -70,6 +71,12 @@ var = identifier
 getPos :: P Pos
 getPos = do pos <- getPosition
             return $ Pos (sourceLine pos) (sourceColumn pos)
+
+-- tyatom :: P STy
+-- tyatom = (reserved "Nat" >> return SNatTy)
+--          <|> ((do t <- var 
+--                   return (SDTy t))
+--              <|> parens typeP)
 
 tyatom :: P Ty
 tyatom = (reserved "Nat" >> return NatTy)
@@ -131,7 +138,9 @@ lam = do i <- getPos
          args <- many (parens multibinding)
          reservedOp "->"
          t <- expr
-         return (SLam i args t)
+         if not (null args)
+         then return (SLam i args t)
+         else error ("no args for inline function at: " ++ show i)
 
 -- Nota el parser app también parsea un solo atom.
 app :: P SNTerm
@@ -169,7 +178,6 @@ letexp = do i <- getPos
             body <- expr
             return (SLet i v ty def body)
 
--- TODO: ver tema de los args
 letexpfun :: P SNTerm
 letexpfun = do i <- getPos
                reserved "let"
@@ -208,30 +216,32 @@ declvar = do i <- getPos
 declfun :: P (Decl SNTerm)
 declfun = do i <- getPos
              reserved "let"
-             v <- var
+             f <- var
              args <- many (parens multibinding)
              reservedOp ":"
              typeP
              reservedOp "="
              t <- expr
-             return (Decl i v (SLam i args t))
+             if not (null args)
+             then return (Decl i f (SLam i args t))
+             else error ("no args for function: " ++ show f)
 
 declfunrec :: P (Decl SNTerm)
 declfunrec = do i <- getPos
                 reserved "let"
                 reserved "rec"
-                v <- var
+                f <- var
                 args <- many (parens multibinding)
                 reservedOp ":"
-                ty <- typeP
+                fty <- typeP
                 reservedOp "="
                 t <- expr
                 case args of
-                    [] -> error ("no args for function: " ++ show v)
-                    (((x : []), ty') : []) -> return (Decl i v ((SFix i v ty x ty' t)))
-                    (((x : xs), ty') : []) -> return (Decl i v ((SFix i v ty x ty' (SLam i [(xs, ty')] t))))
-                    (((x : []), ty') : xss) -> return (Decl i v (SFix i v ty x ty' (SLam i xss t)))
-                    (((x : xs), ty') : xss) -> return (Decl i v ((SFix i v ty x ty' (SLam i ((xs, ty') : xss) t))))                                            
+                    [] -> error ("no args for function: " ++ show f)
+                    (((x : []), ty) : []) -> return (Decl i f ((SFix i f (FunTy ty fty) x ty t)))
+                    ty'@(((x : xs), ty) : []) -> return (Decl i f ((SFix i f (buildTy ty' fty) x ty (SLam i [(xs, ty)] t))))
+                    ty'@(((x : []), ty) : xss) -> return (Decl i f (SFix i f (buildTy ty' fty) x ty (SLam i xss t)))
+                    ty'@(((x : xs), ty) : xss) -> return (Decl i f ((SFix i f (buildTy ty' fty) x ty (SLam i ((xs, ty) : xss) t))))
 
 -- | Parser de programas (listas de declaraciones) 
 program :: P [Decl SNTerm]
@@ -256,21 +266,3 @@ parseDecl :: String -> (Decl SNTerm)
 parseDecl s = case runP decl s "" of
                 Right t -> t
                 Left e -> error ("no parse: " ++ show s)
-
-{-
-TEST CASES FOR PARSER:
-
-NO DECLARATIONS
-parse "let f (x:Nat):Nat = x+2 in f 1"
-parse "let (x:Nat) = 2 in x+x"
-parse "let x:Nat = 2 in x+x"
-parse "let rec f (x:Nat):Nat = x+2 in f 1"
-
-DECLARATIONS:
-parseDecl "let (x:Nat) = 2"
-parseDecl "let x:Nat = 2"
-parseDecl "let rec f (x:Nat):Nat = x+2"
-parseDecl "let f (x:Nat):Nat = x+2"
-parseDecl "let rec f (x y:Nat) (z : Nat ):Nat = x+2"
-parseDecl "let rec f (x y:Nat):Nat = x+2"
--}

@@ -95,7 +95,7 @@ freeVars tm = nubSort $ go tm [] where
   go (Const _ _       ) xs = xs
   go (Let _ _ _ e t   ) xs = go e (go t xs)
 
--- Terminos superficiales
+-- | Terminos azucarados
 
 data STm info var =
     SV info var
@@ -110,6 +110,13 @@ data STm info var =
   | SLet info Name Ty (STm info var) (STm info var)
   | SLetFun info Bool Name [([Name], Ty)] Ty (STm info var) (STm info var)
   deriving (Show, Functor)
+  --  SDeclTy info Name Ty
 
 type SNTerm = STm Pos Name
--- type STy = Either Ty (Decl Ty)
+
+-- | AST de tipos azucarados
+-- data STy =
+--       SNatTy
+--     | SFunTy STy STy
+--     | SDTy Name
+--     deriving (Show,Eq)
