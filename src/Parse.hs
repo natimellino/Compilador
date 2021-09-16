@@ -13,7 +13,7 @@ module Parse (tm, Parse.parse, decl, runP, P, program, declOrTm, parseDecl) wher
 import Prelude hiding ( const )
 import Lang
 import Common
-import Elab ( buildTy )
+import Elab ( buildSTy )
 import Text.Parsec hiding (runP,parse)
 import Data.Char ( isNumber, ord )
 import qualified Text.Parsec.Token as Tok
@@ -72,22 +72,22 @@ getPos :: P Pos
 getPos = do pos <- getPosition
             return $ Pos (sourceLine pos) (sourceColumn pos)
 
--- tyatom :: P STy
--- tyatom = (reserved "Nat" >> return SNatTy)
---          <|> ((do t <- var 
---                   return (SDTy t))
---              <|> parens typeP)
+tyatom :: P STy
+tyatom = (reserved "Nat" >> return SNatTy)
+         <|> ((do t <- var 
+                  return (SDTy t))
+             <|> parens typeP)
 
-tyatom :: P Ty
-tyatom = (reserved "Nat" >> return NatTy)
-         <|> parens typeP
+-- tyatom :: P Ty
+-- tyatom = (reserved "Nat" >> return NatTy)
+--          <|> parens typeP
 
-typeP :: P Ty
+typeP :: P STy
 typeP = try (do 
           x <- tyatom
           reservedOp "->"
           y <- typeP
-          return (FunTy x y))
+          return (SFunTy x y))
       <|> tyatom
           
 const :: P Const
@@ -120,13 +120,13 @@ atom =     (flip SConst <$> const <*> getPos)
        <|> printOp
 
 -- parsea un par (variable : tipo)
-binding :: P (Name, Ty)
+binding :: P (Name, STy)
 binding = do v <- var
              reservedOp ":"
              ty <- typeP
              return (v, ty)
 
-multibinding :: P ([Name], Ty)
+multibinding :: P ([Name], STy)
 multibinding = do v <- many var
                   reservedOp ":"
                   ty <- typeP
@@ -203,7 +203,7 @@ tm = app <|> lam <|> ifz <|> printOp <|> fix <|> (try letexp <|> letexpfun)
 
 -- | Parser de declaraciones
 decl :: P (Decl SNTerm)
-decl = try declvar <|> (try declfunrec <|> declfun)
+decl = decltype <|> try declvar <|> (try declfunrec <|> declfun)
 
 declvar :: P (Decl SNTerm)
 declvar = do i <- getPos
@@ -238,10 +238,18 @@ declfunrec = do i <- getPos
                 t <- expr
                 case args of
                     [] -> error ("no args for function: " ++ show f)
-                    (((x : []), ty) : []) -> return (Decl i f ((SFix i f (FunTy ty fty) x ty t)))
-                    ty'@(((x : xs), ty) : []) -> return (Decl i f ((SFix i f (buildTy ty' fty) x ty (SLam i [(xs, ty)] t))))
-                    ty'@(((x : []), ty) : xss) -> return (Decl i f (SFix i f (buildTy ty' fty) x ty (SLam i xss t)))
-                    ty'@(((x : xs), ty) : xss) -> return (Decl i f ((SFix i f (buildTy ty' fty) x ty (SLam i ((xs, ty) : xss) t))))
+                    (((x : []), ty) : []) -> return (Decl i f ((SFix i f (SFunTy ty fty) x ty t)))
+                    ty'@(((x : xs), ty) : []) -> return (Decl i f ((SFix i f (buildSTy ty' fty) x ty (SLam i [(xs, ty)] t))))
+                    ty'@(((x : []), ty) : xss) -> return (Decl i f (SFix i f (buildSTy ty' fty) x ty (SLam i xss t)))
+                    ty'@(((x : xs), ty) : xss) -> return (Decl i f ((SFix i f (buildSTy ty' fty) x ty (SLam i ((xs, ty) : xss) t))))
+
+decltype :: P (Decl SNTerm)
+decltype = do i <- getPos
+              reserved "type"
+              n <- var
+              reservedOp "="
+              t <- typeP
+              return (Decl i n (SDeclTy i n t))
 
 -- | Parser de programas (listas de declaraciones) 
 program :: P [Decl SNTerm]
@@ -250,7 +258,7 @@ program = many decl
 -- | Parsea una declaración a un término
 -- Útil para las sesiones interactivas
 declOrTm :: P (Either (Decl SNTerm) SNTerm)
-declOrTm =  try (Left <$> decl) <|> (Right <$> expr)
+declOrTm =  try (Right <$> expr) <|> (Left <$> decl)
 
 -- Corre un parser, chequeando que se pueda consumir toda la entrada
 runP :: P a -> String -> String -> Either ParseError a

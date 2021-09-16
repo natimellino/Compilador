@@ -11,7 +11,7 @@ fully named (@NTerm) a locally closed (@Term@) y convertir desde azucarados
 fully name (@SNTerm) a solamente fully named (@NTerm).
 -}
 
-module Elab ( elab, elab_decl, desugar, buildTy, desugarTy ) where
+module Elab ( elab, elab_decl, desugar, buildTy, desugarTy, buildSTy) where
 
 import Lang
 import Subst
@@ -20,8 +20,10 @@ import MonadFD4
 
 -- | 'elab' transforma variables ligadas en índices de de Bruijn
 -- en un término dado. 
-elab :: SNTerm -> Term
-elab = elab' [] . desugar
+
+elab :: MonadFD4 m => SNTerm -> m Term
+elab n = do t <- desugar n
+            return $ elab' [] t
 
 elab' :: [Name] -> NTerm -> Term
 elab' env (V p v) =
@@ -44,36 +46,69 @@ elab' env (App p h a) = App p (elab' env h) (elab' env a)
 elab' env (Let p v vty def body) = Let p v vty (elab' env def) (close v (elab' (v:env) body))
 
 elab_decl :: Decl SNTerm -> Decl Term
-elab_decl = fmap elab
+elab_decl = undefined
 
 -- | Transforma términos azucarados en términos sugar-free
-desugar :: SNTerm -> NTerm
-desugar (SV i v) = V i v
-desugar (SConst i c) = Const i c
-desugar (SLam i (((x : []), ty) : []) t) = Lam i x ty (desugar t)
-desugar (SLam i (((x : xs), ty) : []) t) = Lam i x ty (desugar (SLam i [(xs, ty)] t))
-desugar (SLam i (((x : []), ty) : xss) t) = Lam i x ty (desugar (SLam i xss t))
-desugar (SLam i (((x : xs), ty) : xss) t) = Lam i x ty (desugar (SLam i ((xs, ty) : xss) t))
-desugar (SApp i h a) = App i (desugar h) (desugar a)
-desugar (SPrint i str t) = Print i str (desugar t)
-desugar (SUPrint i str) = Lam i "x" NatTy (Print i str (V i "x"))
-desugar (SBinaryOp i o t u) = BinaryOp i o (desugar t) (desugar u)
-desugar (SFix i f fty x xty t) = Fix i f fty x xty (desugar t)
-desugar (SIfZ i c t e) = IfZ i (desugar c) (desugar t) (desugar e)
-desugar (SLet i v vty def body) = Let i v vty (desugar def) (desugar body)
-desugar st@(SLetFun _ r _ _ _ _ _) = if r then desugarFunRec st else desugarLetFun st
--- desugar (SDeclTy i Name Ty) = 
+desugar :: MonadFD4 m => SNTerm -> m NTerm
+desugar (SV i v) = return (V i v)
+desugar (SConst i c) = return (Const i c)
+desugar (SLam i (((x : []), ty) : []) t) = do t' <- desugar t
+                                              ty' <- desugarTy ty
+                                              return (Lam i x ty' t')
+desugar (SLam i (((x : xs), ty) : []) t) = do t' <- desugar (SLam i [(xs, ty)] t)
+                                              ty' <- desugarTy ty
+                                              return (Lam i x ty' t')
+desugar (SLam i (((x : []), ty) : xss) t) = do t' <- desugar (SLam i xss t) 
+                                               ty' <- desugarTy ty
+                                               return (Lam i x ty' t')
+desugar (SLam i (((x : xs), ty) : xss) t) = do t' <- desugar (SLam i ((xs, ty) : xss) t)
+                                               ty' <- desugarTy ty
+                                               return (Lam i x ty' t')
+desugar (SApp i h a) = do h' <- desugar h 
+                          a' <- desugar a
+                          return (App i h' a')
+desugar (SPrint i str t) = do t' <- desugar t
+                              return (Print i str t')
+desugar (SUPrint i str) = return (Lam i "x" NatTy (Print i str (V i "x")))
+desugar (SBinaryOp i o t u) = do t' <- desugar t 
+                                 u' <- desugar u
+                                 return (BinaryOp i o t' u')
+desugar (SFix i f fty x xty t) = do t' <- desugar t
+                                    fty' <- desugarTy fty
+                                    xty' <- desugarTy xty
+                                    return (Fix i f fty' x xty' t')
+desugar (SIfZ i c t e) = do c' <- desugar c
+                            t' <- desugar t
+                            e' <- desugar e
+                            return (IfZ i c' t' e')
+desugar (SLet i v vty def body) = do def' <- desugar def
+                                     body' <- desugar body
+                                     vty' <- desugarTy vty
+                                     return (Let i v vty' def' body')
+desugar st@(SLetFun _ r _ _ _ _ _) = do if r then desugarFunRec st else desugarLetFun st
 
 -- Funciones auxiliares para desugar
-desugarLetFun :: SNTerm -> NTerm
-desugarLetFun (SLetFun i _ f (((x : []) , ty) : []) fty def body) = Let i f (FunTy ty fty) (Lam i x ty (desugar def)) (desugar body)
-desugarLetFun (SLetFun i _ f argsf fty def body) = Let i f (buildTy argsf fty) (desugar (SLam i argsf def)) (desugar body)
+desugarLetFun :: MonadFD4 m => SNTerm -> m NTerm
+desugarLetFun (SLetFun i _ f (((x : []) , ty) : []) fty def body) = do def' <- desugar def
+                                                                       body' <- desugar body
+                                                                       ty' <- desugarTy ty
+                                                                       fty' <- desugarTy fty
+                                                                       return (Let i f (FunTy ty' fty') (Lam i x ty' def') body')
+desugarLetFun (SLetFun i _ f argsf fty def body) = do body' <- desugar body
+                                                      def' <- desugar (SLam i argsf def)
+                                                      argsf' <- desugarManySTy argsf
+                                                      fty' <- desugarTy fty
+                                                      return (Let i f (buildTy argsf' fty') def' body')
 
-desugarFunRec :: SNTerm -> NTerm
-desugarFunRec (SLetFun i _ f (((x : []) , ty) : []) fty def body) = Let i f (FunTy ty fty) (Fix i f (FunTy ty fty) x ty (desugar def)) (desugar body)
-desugarFunRec (SLetFun i b f (((x : xs) , ty) : []) fty def body) = desugar (SLetFun i b f [([x], ty)] (buildTy [(xs, ty)] fty) (SLam i [(xs, ty)] def) body)
-desugarFunRec (SLetFun i b f (((x : []) , ty) : xss) fty def body) = desugar (SLetFun i b f [([x], ty)] (buildTy xss fty) (SLam i xss def) body)
-desugarFunRec (SLetFun i b f (((x : xs) , ty) : xss) fty def body) = desugar (SLetFun i b f [([x], ty)] (buildTy ((xs, ty) : xss) fty) (SLam i ((xs, ty) : xss) def) body)
+desugarFunRec :: MonadFD4 m => SNTerm -> m NTerm
+desugarFunRec (SLetFun i _ f (((x : []) , ty) : []) fty def body) = do def' <- desugar def
+                                                                       body' <- desugar body
+                                                                       fty' <- desugarTy fty
+                                                                       ty' <- desugarTy ty
+                                                                       return (Let i f (FunTy ty' fty') (Fix i f (FunTy ty' fty') x ty' def') body')
+desugarFunRec (SLetFun i b f (((x : xs) , ty) : []) fty def body) = do desugar (SLetFun i b f [([x], ty)] (buildSTy [(xs, ty)] fty) (SLam i [(xs, ty)] def) body)
+desugarFunRec (SLetFun i b f (((x : []) , ty) : xss) fty def body) = do desugar (SLetFun i b f [([x], ty)] (buildSTy xss fty) (SLam i xss def) body)
+desugarFunRec (SLetFun i b f (((x : xs) , ty) : xss) fty def body) = do desugar (SLetFun i b f [([x], ty)] (buildSTy ((xs, ty) : xss) fty) (SLam i ((xs, ty) : xss) def) body)
 
 -- | Recibe los tipos de los argumentos de una función, el tipo que devuelve y construye el tipo de la función.
 buildTy :: [([Name], Ty)] -> Ty -> Ty
@@ -82,11 +117,26 @@ buildTy (((x : xs), ty) : []) fty = FunTy ty (buildTy [(xs, ty)] fty)
 buildTy (((x : []), ty) : xss) fty = FunTy ty  (buildTy xss fty)
 buildTy (((x : xs), ty) : xss) fty = FunTy ty (buildTy ((xs, ty) : xss) fty)
 
+buildSTy :: [([Name], STy)] -> STy -> STy
+buildSTy (((x : []), ty) : []) fty = SFunTy ty fty
+buildSTy (((x : xs), ty) : []) fty = SFunTy ty (buildSTy [(xs, ty)] fty)
+buildSTy (((x : []), ty) : xss) fty = SFunTy ty (buildSTy xss fty)
+buildSTy (((x : xs), ty) : xss) fty = SFunTy ty (buildSTy ((xs, ty) : xss) fty)
+
+
 -- | Dado un tipo azucarado devuelve algo del tipo Ty ??
 desugarTy :: MonadFD4 m => STy -> m Ty
 desugarTy SNatTy = return NatTy
-desugarTy (SFunTy tx ty) = do tx' <- desugar tx
-                              ty' <- desugar ty
+desugarTy (SFunTy tx ty) = do tx' <- desugarTy tx
+                              ty' <- desugarTy ty
                               return (FunTy tx' ty')
-desugarTy (SDTy n) = do s <z- get
-                        tn <- lookup (s)
+desugarTy (SDTy n) = do t <- lookupSTy n
+                        case t of 
+                          Nothing -> failFD4 $ "Error de ejecución: tipo no declarado: " ++ n
+                          Just ty -> return ty
+
+desugarManySTy :: MonadFD4 m => [([Name], STy)] -> m [([Name], Ty)]
+desugarManySTy [] = return []
+desugarManySTy ((x, ty) : xs) = do ty' <- desugarTy ty
+                                   xs' <- desugarManySTy xs
+                                   return ((x, ty') : xs')

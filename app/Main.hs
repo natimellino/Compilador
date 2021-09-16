@@ -172,7 +172,8 @@ parseIO filename p x = case runP p x filename of
 
 typecheckDecl :: MonadFD4 m => Decl SNTerm -> m (Decl Term)
 typecheckDecl (Decl p x t) = do
-        let dd = (Decl p x (elab t))
+        t' <- elab t
+        let dd = (Decl p x t')
         tcDecl dd
         return dd
 
@@ -269,7 +270,7 @@ compilePhrase x =
 
 handleTerm ::  MonadFD4 m => SNTerm -> m ()
 handleTerm t = do
-         let tt = elab t
+         tt <- elab t
          s <- get
          ty <- tc tt (tyEnv s)
          te <- eval tt
@@ -280,8 +281,8 @@ printPhrase   :: MonadFD4 m => String -> m ()
 printPhrase x =
   do
     x'' <- parseIO "<interactive>" tm x
-    let x' = desugar x''
-        ex = elab x''
+    x' <- desugar x''
+    ex <- elab x''
     t  <- case x' of 
            (V p f) -> maybe ex id <$> lookupDecl f
            _       -> return ex  
@@ -295,7 +296,7 @@ printPhrase x =
 typeCheckPhrase :: MonadFD4 m => String -> m ()
 typeCheckPhrase x = do
          t <- parseIO "<interactive>" tm x
-         let tt = elab t
+         tt <- elab t
          s <- get
          ty <- tc tt (tyEnv s)
          printFD4 (ppTy ty)

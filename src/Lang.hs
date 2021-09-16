@@ -100,15 +100,15 @@ freeVars tm = nubSort $ go tm [] where
 data STm info var =
     SV info var
   | SConst info Const
-  | SLam info [([Name], Ty)] (STm info var)
+  | SLam info [([Name], STy)] (STm info var)
   | SApp info (STm info var) (STm info var)
   | SPrint info String (STm info var)
   | SUPrint info String
   | SBinaryOp info BinaryOp (STm info var) (STm info var)
-  | SFix info Name Ty Name Ty (STm info var)
+  | SFix info Name STy Name STy (STm info var)
   | SIfZ info (STm info var) (STm info var) (STm info var)
-  | SLet info Name Ty (STm info var) (STm info var)
-  | SLetFun info Bool Name [([Name], Ty)] Ty (STm info var) (STm info var)
+  | SLet info Name STy (STm info var) (STm info var)
+  | SLetFun info Bool Name [([Name], STy)] STy (STm info var) (STm info var)
   | SDeclTy info Name STy
   deriving (Show, Functor)
 
