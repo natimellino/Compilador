@@ -41,6 +41,7 @@ data Decl a = Decl
   , declName :: Name
   , declBody :: a
   }
+  | DeclSTy Pos Name STy
   deriving (Show, Functor)
 
 -- | AST de los términos. 
@@ -109,7 +110,6 @@ data STm info var =
   | SIfZ info (STm info var) (STm info var) (STm info var)
   | SLet info Name STy (STm info var) (STm info var)
   | SLetFun info Bool Name [([Name], STy)] STy (STm info var) (STm info var)
-  | SDeclTy info Name STy
   deriving (Show, Functor)
 
 type SNTerm = STm Pos Name

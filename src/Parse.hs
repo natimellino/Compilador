@@ -78,10 +78,6 @@ tyatom = (reserved "Nat" >> return SNatTy)
                   return (SDTy t))
              <|> parens typeP)
 
--- tyatom :: P Ty
--- tyatom = (reserved "Nat" >> return NatTy)
---          <|> parens typeP
-
 typeP :: P STy
 typeP = try (do 
           x <- tyatom
@@ -126,6 +122,7 @@ binding = do v <- var
              ty <- typeP
              return (v, ty)
 
+-- Permite leer varios argumentos continuos del mismo tipo.
 multibinding :: P ([Name], STy)
 multibinding = do v <- many var
                   reservedOp ":"
@@ -202,6 +199,7 @@ tm :: P SNTerm
 tm = app <|> lam <|> ifz <|> printOp <|> fix <|> (try letexp <|> letexpfun)
 
 -- | Parser de declaraciones
+-- TODO: modificar decl para guardar tipos y typechequear
 decl :: P (Decl SNTerm)
 decl = decltype <|> try declvar <|> (try declfunrec <|> declfun)
 
@@ -249,7 +247,7 @@ decltype = do i <- getPos
               n <- var
               reservedOp "="
               t <- typeP
-              return (Decl i n (SDeclTy i n t))
+              return (DeclSTy i n t)
 
 -- | Parser de programas (listas de declaraciones) 
 program :: P [Decl SNTerm]

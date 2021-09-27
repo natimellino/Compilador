@@ -11,8 +11,6 @@ module Global where
 
 import Lang
 
--- TODO: preguntar si podemos usar tyEnv para las declaraciones de tipo o no
-
 data GlEnv = GlEnv {
   inter :: Bool,        -- ^ True, si estamos en modo interactivo.
   lfile :: String,      -- ^ Último archivo cargado.

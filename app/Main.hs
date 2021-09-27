@@ -178,12 +178,14 @@ typecheckDecl (Decl p x t) = do
         return dd
 
 handleDecl ::  MonadFD4 m => Decl SNTerm -> m ()
-handleDecl (Decl p x (SDeclTy i n t)) = do ty <- desugarTy t
-                                           addSTy n ty
-handleDecl d = do
-        (Decl p x tt) <- typecheckDecl d
-        te <- eval tt 
-        addDecl (Decl p x te)
+handleDecl (DeclSTy i n t) = do ty <- desugarTy t
+                                addSTy n ty
+handleDecl d = do decl <- typecheckDecl d
+                  case decl of
+                    (Decl p x tt) -> do te <- eval tt 
+                                        addDecl (Decl p x te)
+                    _ -> failFD4 "no se q onda" -- NO debería llegar acá (fallar o retornar?)
+                  
 
 data Command = Compile CompileForm
              | PPrint String

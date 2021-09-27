@@ -124,7 +124,7 @@ buildSTy (((x : []), ty) : xss) fty = SFunTy ty (buildSTy xss fty)
 buildSTy (((x : xs), ty) : xss) fty = SFunTy ty (buildSTy ((xs, ty) : xss) fty)
 
 
--- | Dado un tipo azucarado devuelve algo del tipo Ty ??
+-- | Dado un tipo azucarado devuelve algo del tipo Ty 
 desugarTy :: MonadFD4 m => STy -> m Ty
 desugarTy SNatTy = return NatTy
 desugarTy (SFunTy tx ty) = do tx' <- desugarTy tx
@@ -132,7 +132,7 @@ desugarTy (SFunTy tx ty) = do tx' <- desugarTy tx
                               return (FunTy tx' ty')
 desugarTy (SDTy n) = do t <- lookupSTy n
                         case t of 
-                          Nothing -> failFD4 $ "Error de ejecución: tipo no declarado: " ++ n
+                          Nothing -> failFD4 $ "Error de conversión: tipo no declarado: " ++ n
                           Just ty -> return ty
 
 desugarManySTy :: MonadFD4 m => [([Name], STy)] -> m [([Name], Ty)]
