@@ -200,31 +200,31 @@ tm = app <|> lam <|> ifz <|> printOp <|> fix <|> (try letexp <|> letexpfun)
 
 -- | Parser de declaraciones
 -- TODO: modificar decl para guardar tipos y typechequear
-decl :: P (Decl SNTerm)
+decl :: P (Decl SNTerm STy)
 decl = decltype <|> try declvar <|> (try declfunrec <|> declfun)
 
-declvar :: P (Decl SNTerm)
+declvar :: P (Decl SNTerm STy)
 declvar = do i <- getPos
              reserved "let"
-             (v,_) <- parens binding <|> binding
+             (v, ty) <- parens binding <|> binding
              reservedOp "="  
              t <- expr
-             return (Decl i v t)
+             return (Decl i v ty t)
 
-declfun :: P (Decl SNTerm)
+declfun :: P (Decl SNTerm STy)
 declfun = do i <- getPos
              reserved "let"
              f <- var
              args <- many (parens multibinding)
              reservedOp ":"
-             typeP
+             fty <- typeP
              reservedOp "="
              t <- expr
              if not (null args)
-             then return (Decl i f (SLam i args t))
+             then return (Decl i f (buildSTy args fty) (SLam i args t))
              else error ("no args for function: " ++ show f)
 
-declfunrec :: P (Decl SNTerm)
+declfunrec :: P (Decl SNTerm STy)
 declfunrec = do i <- getPos
                 reserved "let"
                 reserved "rec"
@@ -236,12 +236,12 @@ declfunrec = do i <- getPos
                 t <- expr
                 case args of
                     [] -> error ("no args for function: " ++ show f)
-                    (((x : []), ty) : []) -> return (Decl i f ((SFix i f (SFunTy ty fty) x ty t)))
-                    ty'@(((x : xs), ty) : []) -> return (Decl i f ((SFix i f (buildSTy ty' fty) x ty (SLam i [(xs, ty)] t))))
-                    ty'@(((x : []), ty) : xss) -> return (Decl i f (SFix i f (buildSTy ty' fty) x ty (SLam i xss t)))
-                    ty'@(((x : xs), ty) : xss) -> return (Decl i f ((SFix i f (buildSTy ty' fty) x ty (SLam i ((xs, ty) : xss) t))))
+                    (((x : []), ty) : []) -> return (Decl i f (SFunTy ty fty) ((SFix i f (SFunTy ty fty) x ty t)))
+                    ty'@(((x : xs), ty) : []) -> return (Decl i f (buildSTy ty' fty) ((SFix i f (buildSTy ty' fty) x ty (SLam i [(xs, ty)] t))))
+                    ty'@(((x : []), ty) : xss) -> return (Decl i f (buildSTy ty' fty) (SFix i f (buildSTy ty' fty) x ty (SLam i xss t)))
+                    ty'@(((x : xs), ty) : xss) -> return (Decl i f (buildSTy ty' fty) ((SFix i f (buildSTy ty' fty) x ty (SLam i ((xs, ty) : xss) t))))
 
-decltype :: P (Decl SNTerm)
+decltype :: P (Decl SNTerm STy)
 decltype = do i <- getPos
               reserved "type"
               n <- var
@@ -250,12 +250,12 @@ decltype = do i <- getPos
               return (DeclSTy i n t)
 
 -- | Parser de programas (listas de declaraciones) 
-program :: P [Decl SNTerm]
+program :: P [Decl SNTerm STy]
 program = many decl
 
 -- | Parsea una declaración a un término
 -- Útil para las sesiones interactivas
-declOrTm :: P (Either (Decl SNTerm) SNTerm)
+declOrTm :: P (Either (Decl SNTerm STy) SNTerm)
 declOrTm =  try (Right <$> expr) <|> (Left <$> decl)
 
 -- Corre un parser, chequeando que se pueda consumir toda la entrada
@@ -268,7 +268,7 @@ parse s = case runP expr s "" of
             Right t -> t
             Left e -> error ("no parse: " ++ show s)
 
-parseDecl :: String -> (Decl SNTerm)
+parseDecl :: String -> (Decl SNTerm STy)
 parseDecl s = case runP decl s "" of
                 Right t -> t
                 Left e -> error ("no parse: " ++ show s)

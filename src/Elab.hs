@@ -45,7 +45,7 @@ elab' env (BinaryOp i o t u) = BinaryOp i o (elab' env t) (elab' env u)
 elab' env (App p h a) = App p (elab' env h) (elab' env a)
 elab' env (Let p v vty def body) = Let p v vty (elab' env def) (close v (elab' (v:env) body))
 
-elab_decl :: Decl SNTerm -> Decl Term
+elab_decl :: Decl SNTerm STy -> Decl Term Ty
 elab_decl = undefined
 
 -- | Transforma términos azucarados en términos sugar-free

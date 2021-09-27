@@ -36,9 +36,10 @@ data BinaryOp = Add | Sub
   deriving Show
 
 -- | tipo de datos de declaraciones, parametrizado por el tipo del cuerpo de la declaración
-data Decl a = Decl
+data Decl a b = Decl
   { declPos  :: Pos
   , declName :: Name
+  , declTy   :: b
   , declBody :: a
   }
   | DeclSTy Pos Name STy

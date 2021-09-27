@@ -137,7 +137,7 @@ compileFiles (x:xs) = do
         compileFile x
         compileFiles xs
 
-loadFile ::  MonadFD4 m => FilePath -> m [Decl SNTerm]
+loadFile ::  MonadFD4 m => FilePath -> m [Decl SNTerm STy]
 loadFile f = do
     let filename = reverse(dropWhile isSpace (reverse f))
     x <- liftIO $ catch (readFile filename)
@@ -170,20 +170,22 @@ parseIO filename p x = case runP p x filename of
                   Left e  -> throwError (ParseErr e)
                   Right r -> return r
 
-typecheckDecl :: MonadFD4 m => Decl SNTerm -> m (Decl Term)
-typecheckDecl (Decl p x t) = do
+typecheckDecl :: MonadFD4 m => Decl SNTerm STy -> m (Decl Term Ty)
+typecheckDecl (Decl p x ty t) = do
+        ty' <- desugarTy ty
         t' <- elab t
-        let dd = (Decl p x t')
+        let dd = (Decl p x ty' t')
         tcDecl dd
         return dd
+typecheckDecl _ = failFD4 "No debería llegar a esto"
 
-handleDecl ::  MonadFD4 m => Decl SNTerm -> m ()
+handleDecl ::  MonadFD4 m => Decl SNTerm STy -> m ()
 handleDecl (DeclSTy i n t) = do ty <- desugarTy t
                                 addSTy n ty
 handleDecl d = do decl <- typecheckDecl d
                   case decl of
-                    (Decl p x tt) -> do te <- eval tt 
-                                        addDecl (Decl p x te)
+                    (Decl p x ty tt) -> do te <- eval tt 
+                                           addDecl (Decl p x ty te)
                     _ -> failFD4 "no se q onda" -- NO debería llegar acá (fallar o retornar?)
                   
 
