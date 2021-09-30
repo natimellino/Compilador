@@ -121,3 +121,22 @@ data STy =
     | SFunTy STy STy
     | SDTy Name
     deriving (Show,Eq)
+
+
+-- | CEK
+
+data Clos = ClosFun Name Ty Env Term | ClosFix Name Ty Name Ty Env Term
+
+data Val = N Int | Cl Clos
+
+type Env = [Val]
+
+data Frame = 
+    KArg Env Term  
+  | KClos Clos
+  | KIfz Env Term Term
+  | KArgBOp Env BinaryOp Term
+  | KValBOp BinaryOp Val
+  | KPrint String
+
+type Kont = [Frame]
