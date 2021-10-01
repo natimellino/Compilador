@@ -125,9 +125,9 @@ data STy =
 
 -- | CEK
 
-data Clos = ClosFun Name Ty Env Term | ClosFix Name Ty Name Ty Env Term
+data Clos = ClosFun Name Ty Env Term | ClosFix Name Ty Name Ty Env Term deriving Show
 
-data Val = N Int | Cl Clos
+data Val = N Int | Cl Clos deriving Show
 
 type Env = [Val]
 
@@ -138,5 +138,7 @@ data Frame =
   | KArgBOp Env BinaryOp Term
   | KValBOp BinaryOp Val
   | KPrint String
+  | KLet Env Term
+  deriving Show
 
 type Kont = [Frame]
