@@ -39,9 +39,20 @@ data BinaryOp = Add | Sub
 data Decl a = Decl
   { declPos  :: Pos
   , declName :: Name
+  , declTy   :: Ty
   , declBody :: a
   }
   deriving (Show, Functor)
+
+data SDecl = SDecl
+  { sdeclPos  :: Pos
+  , sdeclRec  :: Bool
+  , sdeclName :: Name
+  , sdeclArgs :: [([Name], STy)]
+  , sdeclTy   :: STy
+  , sdeclBody :: SNTerm
+  }
+  | DeclSTy Pos Name STy
 
 -- | AST de los términos. 
 --   - info es información extra que puede llevar cada nodo. 
@@ -94,3 +105,28 @@ freeVars tm = nubSort $ go tm [] where
   go (IfZ _ c t e     ) xs = go c $ go t $ go e xs
   go (Const _ _       ) xs = xs
   go (Let _ _ _ e t   ) xs = go e (go t xs)
+
+-- | Terminos azucarados
+
+data STm info var =
+    SV info var
+  | SConst info Const
+  | SLam info [([Name], STy)] (STm info var)
+  | SApp info (STm info var) (STm info var)
+  | SPrint info String (STm info var)
+  | SUPrint info String
+  | SBinaryOp info BinaryOp (STm info var) (STm info var)
+  | SFix info Name STy Name STy (STm info var)
+  | SIfZ info (STm info var) (STm info var) (STm info var)
+  | SLet info Name STy (STm info var) (STm info var)
+  | SLetFun info Bool Name [([Name], STy)] STy (STm info var) (STm info var)
+  deriving (Show, Functor)
+
+type SNTerm = STm Pos Name
+
+-- | AST de tipos azucarados
+data STy =
+      SNatTy
+    | SFunTy STy STy
+    | SDTy Name
+    deriving (Show,Eq)

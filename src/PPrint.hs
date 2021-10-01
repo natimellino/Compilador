@@ -75,14 +75,15 @@ ppName :: Name -> String
 ppName = id
 
 -- | Pretty printer para tipos (Doc)
-ty2doc :: Ty -> Doc AnsiStyle
-ty2doc NatTy     = typeColor (pretty "Nat")
-ty2doc (FunTy x@(FunTy _ _) y) = sep [parens (ty2doc x), typeOpColor (pretty "->"),ty2doc y]
-ty2doc (FunTy x y) = sep [ty2doc x, typeOpColor (pretty "->"),ty2doc y] 
+ty2doc :: STy -> Doc AnsiStyle
+ty2doc SNatTy     = typeColor (pretty "Nat")
+ty2doc (SFunTy x@(SFunTy _ _) y) = sep [parens (ty2doc x), typeOpColor (pretty "->"),ty2doc y]
+ty2doc (SFunTy x y) = sep [ty2doc x, typeOpColor (pretty "->"),ty2doc y] 
+ty2doc (SDTy x) = name2doc x
 
 -- | Pretty printer para tipos (String)
 ppTy :: Ty -> String
-ppTy = render . ty2doc
+ppTy = render . ty2doc . resugarTy
 
 c2doc :: Const -> Doc AnsiStyle
 c2doc (CNat n) = constColor (pretty (show n))
@@ -91,9 +92,9 @@ binary2doc :: BinaryOp -> Doc AnsiStyle
 binary2doc Add = opColor (pretty "+")
 binary2doc Sub = opColor (pretty "-")
 
-collectApp :: NTerm -> (NTerm, [NTerm])
+collectApp :: SNTerm -> (SNTerm, [SNTerm])
 collectApp t = go [] t where
-  go ts (App _ h tt) = go (tt:ts) h
+  go ts (SApp _ h tt) = go (tt:ts) h
   go ts h = (h, ts)
 
 parenIf :: Bool -> Doc a -> Doc a
@@ -104,25 +105,25 @@ parenIf _ = id
 -- at: debe ser un átomo
 -- | Pretty printing de términos (Doc)
 t2doc :: Bool     -- Debe ser un átomo? 
-      -> NTerm    -- término a mostrar
+      -> SNTerm    -- término a mostrar
       -> Doc AnsiStyle
 -- Uncomment to use the Show instance for STerm
 {- t2doc at x = text (show x) -}
-t2doc at (V _ x) = name2doc x
-t2doc at (Const _ c) = c2doc c
-t2doc at (Lam _ v ty t) =
+t2doc at (SV _ x) = name2doc x
+t2doc at (SConst _ c) = c2doc c
+t2doc at (SLam _ args t) =
   parenIf at $
   sep [sep [ keywordColor (pretty "fun")
-           , binding2doc (v,ty)
+           , manyargs2doc args
            , opColor(pretty "->")]
       , nest 2 (t2doc False t)]
 
-t2doc at t@(App _ _ _) =
+t2doc at t@(SApp _ _ _) =
   let (h, ts) = collectApp t in
   parenIf at $
   t2doc True h <+> sep (map (t2doc True) ts)
 
-t2doc at (Fix _ f fty x xty m) =
+t2doc at (SFix _ f fty x xty m) =
   parenIf at $
   sep [ sep [keywordColor (pretty "fix")
                   , binding2doc (f, fty)
@@ -130,17 +131,21 @@ t2doc at (Fix _ f fty x xty m) =
                   , opColor (pretty "->") ]
       , nest 2 (t2doc False m)
       ]
-t2doc at (IfZ _ c t e) =
+t2doc at (SIfZ _ c t e) =
   parenIf at $
   sep [keywordColor (pretty "ifz"), nest 2 (t2doc False c)
      , keywordColor (pretty "then"), nest 2 (t2doc False t)
      , keywordColor (pretty "else"), nest 2 (t2doc False e) ]
 
-t2doc at (Print _ str t) =
+t2doc at (SPrint _ str t) =
   parenIf at $
   sep [keywordColor (pretty "print"), pretty (show str), t2doc True t]
 
-t2doc at (Let _ v ty t t') =
+t2doc at (SUPrint _ str) =
+  parenIf at $
+  sep [keywordColor (pretty "print"), pretty (show str)]
+
+t2doc at (SLet _ v ty t t') =
   parenIf at $
   sep [
     sep [keywordColor (pretty "let")
@@ -150,13 +155,32 @@ t2doc at (Let _ v ty t t') =
   , keywordColor (pretty "in")
   , nest 2 (t2doc False t') ]
 
-t2doc at (BinaryOp _ o a b) =
+t2doc at (SLetFun _ r v args ty t t') =
+  parenIf at $
+  sep [
+    sep [keywordColor (pretty "let")
+       , if r then (pretty "rec") else emptyDoc
+       , manyargs2doc args
+       , opColor (pretty ":")
+       , ty2doc ty
+       , opColor (pretty "=") ]
+  , nest 2 (t2doc False t)
+  , keywordColor (pretty "in")
+  , nest 2 (t2doc False t') ]
+
+t2doc at (SBinaryOp _ o a b) =
   parenIf at $
   t2doc True a <+> binary2doc o <+> t2doc True b
 
-binding2doc :: (Name, Ty) -> Doc AnsiStyle
+binding2doc :: (Name, STy) -> Doc AnsiStyle
 binding2doc (x, ty) =
   parens (sep [name2doc x, pretty ":", ty2doc ty])
+
+multibinder2doc :: ([Name], STy) -> Doc AnsiStyle
+multibinder2doc (xs, ty) = parens (sep [sep $ map name2doc xs, pretty ":", ty2doc ty])
+
+manyargs2doc :: [([Name], STy)] -> Doc AnsiStyle
+manyargs2doc xs = sep $ map multibinder2doc xs
 
 -- | Pretty printing de términos (String)
 pp :: MonadFD4 m => Term -> m String
@@ -164,18 +188,42 @@ pp :: MonadFD4 m => Term -> m String
 {- pp = show -}
 pp t = do
        gdecl <- gets glb
-       return (render . t2doc False $ openAll (map declName gdecl) t)
+       return (render . t2doc False $ resugar $ openAll (map declName gdecl) t)
 
 render :: Doc AnsiStyle -> String
 render = unpack . renderStrict . layoutSmart defaultLayoutOptions
 
 -- | Pretty printing de declaraciones
 ppDecl :: MonadFD4 m => Decl Term -> m String
-ppDecl (Decl p x t) = do 
+ppDecl (Decl p x _ t) = do 
   gdecl <- gets glb
   return (render $ sep [defColor (pretty "let")
                        , name2doc x 
                        , defColor (pretty "=")] 
-                   <+> nest 2 (t2doc False (openAll (map declName gdecl) t)))
-                         
+                   <+> nest 2 (t2doc False (resugar (openAll (map declName gdecl) t))))
 
+resugarTy :: Ty -> STy
+resugarTy NatTy = SNatTy
+resugarTy (FunTy ty ty') = SFunTy (resugarTy ty) (resugarTy ty')
+                         
+resugar :: NTerm -> SNTerm
+resugar (V i v) = SV i v
+resugar (Const p c) = SConst p c
+resugar (IfZ p c t e) = SIfZ p (resugar c) (resugar t) (resugar e)
+resugar (Print i str t) = SPrint i str (resugar t)
+resugar (BinaryOp i o t u) = SBinaryOp i o (resugar t) (resugar u)
+resugar (App p h a) = SApp p (resugar h) (resugar a)
+resugar (Lam p v ty t) = let (args, st) = rebuildLam t v (resugarTy ty)
+                         in (SLam p args (resugar st))
+resugar (Fix p f fty x xty t) = SFix p f (resugarTy fty) x (resugarTy xty) (resugar t)
+resugar (Let p v vty def body) = (SLet p v (resugarTy vty) (resugar def) (resugar body))
+
+rebuildLam :: NTerm -> Name -> STy -> ([([Name], STy)], NTerm)
+rebuildLam nt v vty = rebuildLam' nt [([v], vty)]
+
+rebuildLam' :: NTerm -> [([Name], STy)] -> ([([Name], STy)], NTerm)
+rebuildLam' (Lam p v ty t) args@((ys, sty) : xs) = if sty' == sty
+                                                   then rebuildLam' t (((ys ++ [v]), sty) : xs)
+                                                   else rebuildLam' t (([v], sty') : args)
+                                                   where sty' = resugarTy ty
+rebuildLam' nt args = (reverse args, nt)
