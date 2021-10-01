@@ -31,7 +31,7 @@ import Global ( GlEnv(..) )
 import Errors
 import Lang
 import Parse ( P, tm, program, declOrTm, runP )
-import Elab ( elab, desugar, desugarTy )
+import Elab ( elab, desugar, desugarDecl, desugarTy )
 import Eval ( eval )
 import PPrint ( pp , ppTy, ppDecl )
 import MonadFD4
@@ -137,7 +137,7 @@ compileFiles (x:xs) = do
         compileFile x
         compileFiles xs
 
-loadFile ::  MonadFD4 m => FilePath -> m [Decl SNTerm STy]
+loadFile ::  MonadFD4 m => FilePath -> m [SDecl]
 loadFile f = do
     let filename = reverse(dropWhile isSpace (reverse f))
     x <- liftIO $ catch (readFile filename)
@@ -162,7 +162,7 @@ typecheckFile ::  MonadFD4 m => Bool -> FilePath -> m ()
 typecheckFile opt f = do
     printFD4  ("Chequeando "++f)
     decls <- loadFile f
-    ppterms <- mapM (typecheckDecl >=> ppDecl) decls
+    ppterms <- mapM (desugarDecl >=> typecheckDecl >=> ppDecl) decls
     mapM_ printFD4 ppterms
 
 parseIO ::  MonadFD4 m => String -> P a -> String -> m a
@@ -170,23 +170,21 @@ parseIO filename p x = case runP p x filename of
                   Left e  -> throwError (ParseErr e)
                   Right r -> return r
 
-typecheckDecl :: MonadFD4 m => Decl SNTerm STy -> m (Decl Term Ty)
+typecheckDecl :: MonadFD4 m => Decl NTerm -> m (Decl Term)
 typecheckDecl (Decl p x ty t) = do
-        ty' <- desugarTy ty
         t' <- elab t
-        let dd = (Decl p x ty' t')
+        let dd = (Decl p x ty t')
         tcDecl dd
         return dd
-typecheckDecl _ = failFD4 "No debería llegar a esto"
 
-handleDecl ::  MonadFD4 m => Decl SNTerm STy -> m ()
-handleDecl (DeclSTy i n t) = do ty <- desugarTy t
+handleDecl ::  MonadFD4 m => SDecl -> m ()
+handleDecl (DeclSTy _ n t) = do ty <- desugarTy t
                                 addSTy n ty
-handleDecl d = do decl <- typecheckDecl d
-                  case decl of
-                    (Decl p x ty tt) -> do te <- eval tt 
-                                           addDecl (Decl p x ty te)
-                    _ -> failFD4 "no se q onda" -- NO debería llegar acá (fallar o retornar?)
+handleDecl d = do decl <- desugarDecl d
+                  (Decl p x ty tt) <- typecheckDecl decl
+                  te <- eval tt 
+                  addDecl (Decl p x ty te)
+                  
                   
 
 data Command = Compile CompileForm
@@ -274,7 +272,8 @@ compilePhrase x =
 
 handleTerm ::  MonadFD4 m => SNTerm -> m ()
 handleTerm t = do
-         tt <- elab t
+         t' <- desugar t
+         tt <- elab t'
          s <- get
          ty <- tc tt (tyEnv s)
          te <- eval tt
@@ -286,7 +285,7 @@ printPhrase x =
   do
     x'' <- parseIO "<interactive>" tm x
     x' <- desugar x''
-    ex <- elab x''
+    ex <- elab x'
     t  <- case x' of 
            (V p f) -> maybe ex id <$> lookupDecl f
            _       -> return ex  
@@ -300,7 +299,8 @@ printPhrase x =
 typeCheckPhrase :: MonadFD4 m => String -> m ()
 typeCheckPhrase x = do
          t <- parseIO "<interactive>" tm x
-         tt <- elab t
+         t' <- desugar t
+         tt <- elab t'
          s <- get
          ty <- tc tt (tyEnv s)
          printFD4 (ppTy ty)
