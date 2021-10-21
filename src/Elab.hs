@@ -11,7 +11,7 @@ fully named (@NTerm) a locally closed (@Term@) y convertir desde azucarados
 fully name (@SNTerm) a solamente fully named (@NTerm).
 -}
 
-module Elab ( elab, elab_decl, desugar, buildTy, desugarTy, buildSTy) where
+module Elab ( elab, desugar, desugarDecl, buildTy, desugarTy, buildSTy) where
 
 import Lang
 import Subst
@@ -21,9 +21,8 @@ import MonadFD4
 -- | 'elab' transforma variables ligadas en índices de de Bruijn
 -- en un término dado. 
 
-elab :: MonadFD4 m => SNTerm -> m Term
-elab n = do t <- desugar n
-            return $ elab' [] t
+elab :: MonadFD4 m => NTerm -> m Term
+elab t = return (elab' [] t)
 
 elab' :: [Name] -> NTerm -> Term
 elab' env (V p v) =
@@ -45,8 +44,6 @@ elab' env (BinaryOp i o t u) = BinaryOp i o (elab' env t) (elab' env u)
 elab' env (App p h a) = App p (elab' env h) (elab' env a)
 elab' env (Let p v vty def body) = Let p v vty (elab' env def) (close v (elab' (v:env) body))
 
-elab_decl :: Decl SNTerm STy -> Decl Term Ty
-elab_decl = undefined
 
 -- | Transforma términos azucarados en términos sugar-free
 desugar :: MonadFD4 m => SNTerm -> m NTerm
@@ -109,6 +106,26 @@ desugarFunRec (SLetFun i _ f (((x : []) , ty) : []) fty def body) = do def' <- d
 desugarFunRec (SLetFun i b f (((x : xs) , ty) : []) fty def body) = do desugar (SLetFun i b f [([x], ty)] (buildSTy [(xs, ty)] fty) (SLam i [(xs, ty)] def) body)
 desugarFunRec (SLetFun i b f (((x : []) , ty) : xss) fty def body) = do desugar (SLetFun i b f [([x], ty)] (buildSTy xss fty) (SLam i xss def) body)
 desugarFunRec (SLetFun i b f (((x : xs) , ty) : xss) fty def body) = do desugar (SLetFun i b f [([x], ty)] (buildSTy ((xs, ty) : xss) fty) (SLam i ((xs, ty) : xss) def) body)
+
+-- | Desugarea una SDecl
+desugarDecl :: MonadFD4 m => SDecl -> m (Decl NTerm)
+desugarDecl (DeclSTy _ _ _) = failFD4 "No debería desugarearse una declaración de tipo"
+desugarDecl (SDecl i False x [] xty t) = do xty' <- desugarTy xty
+                                            t' <- desugar t
+                                            return (Decl i x xty' t')
+desugarDecl (SDecl i _ f [] _ _) = error ("no args for function: " ++ show f)
+desugarDecl (SDecl i False f args fty t) = do t' <- desugar (SLam i args t)
+                                              fty' <- desugarTy (buildSTy args fty)
+                                              return (Decl i f fty' t')
+desugarDecl (SDecl i True f args fty t) = do let fty' = buildSTy args fty
+                                             dfty <- desugarTy fty'
+                                             t' <- desugar (foo args fty')
+                                             return (Decl i f dfty t')
+                                          where foo args fty = case args of
+                                                                (((x : []), ty) : []) -> (SFix i f fty x ty t)
+                                                                (((x : xs), ty) : []) -> (SFix i f fty x ty (SLam i [(xs, ty)] t))
+                                                                (((x : []), ty) : xss) -> (SFix i f fty x ty (SLam i xss t))
+                                                                (((x : xs), ty) : xss) -> (SFix i f fty x ty (SLam i ((xs, ty) : xss) t))
 
 -- | Recibe los tipos de los argumentos de una función, el tipo que devuelve y construye el tipo de la función.
 buildTy :: [([Name], Ty)] -> Ty -> Ty

@@ -31,7 +31,7 @@ import Global ( GlEnv(..) )
 import Errors
 import Lang
 import Parse ( P, tm, program, declOrTm, runP )
-import Elab ( elab, desugar, desugarTy )
+import Elab ( elab, desugar, desugarDecl, desugarTy )
 import Eval ( eval )
 import CEK ( search, val2Term )
 import PPrint ( pp , ppTy, ppDecl )
@@ -140,7 +140,7 @@ compileFiles (x:xs) mode = do
         compileFile x mode
         compileFiles xs mode
 
-loadFile ::  MonadFD4 m => FilePath -> m [Decl SNTerm STy]
+loadFile ::  MonadFD4 m => FilePath -> m [SDecl]
 loadFile f = do
     let filename = reverse(dropWhile isSpace (reverse f))
     x <- liftIO $ catch (readFile filename)
@@ -165,7 +165,7 @@ typecheckFile ::  MonadFD4 m => Bool -> FilePath -> m ()
 typecheckFile opt f = do
     printFD4  ("Chequeando "++f)
     decls <- loadFile f
-    ppterms <- mapM (typecheckDecl >=> ppDecl) decls
+    ppterms <- mapM (desugarDecl >=> typecheckDecl >=> ppDecl) decls
     mapM_ printFD4 ppterms
 
 parseIO ::  MonadFD4 m => String -> P a -> String -> m a
@@ -173,39 +173,33 @@ parseIO filename p x = case runP p x filename of
                   Left e  -> throwError (ParseErr e)
                   Right r -> return r
 
-typecheckDecl :: MonadFD4 m => Decl SNTerm STy -> m (Decl Term Ty)
+typecheckDecl :: MonadFD4 m => Decl NTerm -> m (Decl Term)
 typecheckDecl (Decl p x ty t) = do
-        ty' <- desugarTy ty
         t' <- elab t
-        let dd = (Decl p x ty' t')
+        let dd = (Decl p x ty t')
         tcDecl dd
         return dd
-typecheckDecl _ = failFD4 "No debería llegar a esto"
 
-handleDecl ::  MonadFD4 m => Decl SNTerm STy -> Mode -> m ()
+handleDecl ::  MonadFD4 m => SDecl -> Mode -> m ()
+handleDecl (DeclSTy _ n t) _ = do ty <- desugarTy t
+                                  addSTy n ty
 handleDecl d m = case m of
                     Interactive -> handleDeclBigS d
                     InteractiveCEK -> handleDeclCEK d
                     _ -> failFD4 "Modo inválido"
 
-handleDeclBigS ::  MonadFD4 m => Decl SNTerm STy -> m ()
-handleDeclBigS (DeclSTy i n t) = do ty <- desugarTy t
-                                    addSTy n ty
-handleDeclBigS d = do decl <- typecheckDecl d
-                      case decl of
-                        (Decl p x ty tt) -> do te <- eval tt 
-                                               addDecl (Decl p x ty te)
-                        _ -> failFD4 "no se q onda" -- NO debería llegar acá (fallar o retornar?)
+handleDeclBigS ::  MonadFD4 m => SDecl -> m ()
+handleDeclBigS d = do decl <- desugarDecl d
+                      (Decl p x ty tt) <- typecheckDecl decl
+                      te <- eval tt 
+                      addDecl (Decl p x ty te)
 
-handleDeclCEK :: MonadFD4 m => Decl SNTerm STy -> m ()
-handleDeclCEK (DeclSTy i n t) = do ty <- desugarTy t
-                                   addSTy n ty
-handleDeclCEK d = do decl <- typecheckDecl d
-                     case decl of
-                       (Decl p x ty tt) -> do v <- search tt [] [] 
-                                              te <- val2Term v 
-                                              addDecl (Decl p x ty te)
-                       _ -> failFD4 "no se q onda" -- NO debería llegar acá (fallar o retornar?)
+handleDeclCEK :: MonadFD4 m => SDecl -> m ()
+handleDeclCEK d = do decl <- desugarDecl d
+                     (Decl p x ty tt) <- typecheckDecl decl
+                     v <- search tt [] [] 
+                     te <- val2Term v 
+                     addDecl (Decl p x ty te)
                   
 
 data Command = Compile CompileForm
@@ -298,15 +292,17 @@ handleTerm t m = case m of
                     _ -> failFD4 "Modo inválido"
 
 handleTermBigS ::  MonadFD4 m => SNTerm -> m ()
-handleTermBigS t = do tt <- elab t
-                      s <- get
-                      ty <- tc tt (tyEnv s)
-                      te <- eval tt
-                      ppte <- pp te
-                      printFD4 (ppte ++ " : " ++ ppTy ty)
+handleTermBigS t = do  t' <- desugar t
+                       tt <- elab t'
+                       s <- get
+                       ty <- tc tt (tyEnv s)
+                       te <- eval tt
+                       ppte <- pp te
+                       printFD4 (ppte ++ " : " ++ ppTy ty)
 
 handleTermCEK :: MonadFD4 m => SNTerm -> m ()
-handleTermCEK t = do tt <- elab t
+handleTermCEK t = do t' <- desugar t
+                     tt <- elab t'
                      s <- get
                      ty <- tc tt (tyEnv s)
                      v <- search tt [] []
@@ -319,7 +315,7 @@ printPhrase x =
   do
     x'' <- parseIO "<interactive>" tm x
     x' <- desugar x''
-    ex <- elab x''
+    ex <- elab x'
     t  <- case x' of 
            (V p f) -> maybe ex id <$> lookupDecl f
            _       -> return ex  
@@ -333,7 +329,8 @@ printPhrase x =
 typeCheckPhrase :: MonadFD4 m => String -> m ()
 typeCheckPhrase x = do
          t <- parseIO "<interactive>" tm x
-         tt <- elab t
+         t' <- desugar t
+         tt <- elab t'
          s <- get
          ty <- tc tt (tyEnv s)
          printFD4 (ppTy ty)
