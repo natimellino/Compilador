@@ -11,7 +11,7 @@ Este módulo permite compilar módulos a la BVM. También provee una implementac
 para ejecutar bytecode.
 -}
 module Bytecompile
-  (Bytecode, runBC, bcWrite, bcRead)
+  (Bytecode, runBC, bcWrite, bcRead,bytecompileModule)
  where
 
 import Lang 
@@ -24,6 +24,8 @@ import Data.Binary ( Word32, Binary(put, get), decode, encode )
 import Data.Binary.Put ( putWord32le )
 import Data.Binary.Get ( getWord32le, isEmpty )
 import Data.Char ( ord, char )
+
+import Data.Char
 
 type Opcode = Int
 type Bytecode = [Opcode]
@@ -56,20 +58,21 @@ entero, por ejemplo:
  En lo posible, usar estos códigos exactos para poder ejectutar un
  mismo bytecode compilado en distintas implementaciones de la máquina.
 -}
+pattern NULL     = 0
 pattern RETURN   = 1
 pattern CONST    = 2
 pattern ACCESS   = 3
 pattern FUNCTION = 4
 pattern CALL     = 5
-pattern SUCC     = 6
-pattern PRED     = 7
+pattern ADD      = 6
+pattern SUB      = 7
 pattern IFZ      = 8
 pattern FIX      = 9
 pattern STOP     = 10
-pattern JUMP     = 11
-pattern SHIFT    = 12
-pattern DROP     = 13
-pattern PRINT    = 14
+pattern SHIFT    = 11
+pattern DROP     = 12
+pattern PRINT    = 13
+pattern PRINTN   = 14
 
 bc :: MonadFD4 m => Term -> m Bytecode
 bc (V _ (Bound i)) = return [ACCESS, i]
@@ -89,6 +92,10 @@ bc (Print _ str t) = do ordStr <- map ord str
                         ct <- bc t
                         return $ [PRINT] ++ ordStr ++ [NULL] ++ ct ++ [PRINTN]
 
+type Module = [Decl Term]
+
+bytecompileModule :: MonadFD4 m => Module -> m Bytecode
+bytecompileModule = error "implementame"
 
 -- | Toma un bytecode, lo codifica y lo escribe un archivo 
 bcWrite :: Bytecode -> FilePath -> IO ()
