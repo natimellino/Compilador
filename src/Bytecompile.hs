@@ -17,14 +17,16 @@ module Bytecompile
 import Lang 
 import Subst
 import MonadFD4
+import PPrint ( ppName )
 
 import qualified Data.ByteString.Lazy as BS
 import Data.Binary ( Word32, Binary(put, get), decode, encode )
 import Data.Binary.Put ( putWord32le )
 import Data.Binary.Get ( getWord32le, isEmpty )
+import Data.Char ( ord, char )
 
 type Opcode = Int
-type Bytecode = [Int]
+type Bytecode = [Opcode]
 
 newtype Bytecode32 = BC { un32 :: [Word32] }
 
@@ -70,7 +72,22 @@ pattern DROP     = 13
 pattern PRINT    = 14
 
 bc :: MonadFD4 m => Term -> m Bytecode
-bc t = error "implementame"
+bc (V _ (Bound i)) = return [ACCESS, i]
+bc (V _ (Global nm)) = do mtm <- lookupDecl nm 
+                          case mtm of 
+                            Nothing -> failFD4 $ "Error de compilación: variable no declarada: " ++ ppName nm 
+                            Just t -> bc t
+bc (V _ (Free nm)) = failFD4 $ "Error de compilación: variable libre encontrada" ++ ppName nm
+bc (Const _ (CNat n)) = return [CONST, n]
+bc (Lam _ _ _ t) = do ct <- bc t
+                      let ft = ct ++ [RETURN]
+                      return $ [FUNCTION, length ft] ++ ft                   
+bc (App _ f e) = do cf <- bc f
+                    ce <- bc e
+                    return $ cf ++ ce ++ [CALL]
+bc (Print _ str t) = do ordStr <- map ord str
+                        ct <- bc t
+                        return $ [PRINT] ++ ordStr ++ [NULL] ++ ct ++ [PRINTN]
 
 
 -- | Toma un bytecode, lo codifica y lo escribe un archivo 

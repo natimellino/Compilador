@@ -127,16 +127,19 @@ data STy =
 
 data Clos = ClosFun Name Ty Env Term | ClosFix Name Ty Name Ty Env Term
 
-data Val = N Int | Cl Clos
+data CEKVal = N Int | Cl Clos
 
-type Env = [Val]
+type Env = [CEKVal]
 
 data Frame = 
     KArg Env Term  
   | KClos Clos
   | KIfz Env Term Term
   | KArgBOp Env BinaryOp Term
-  | KValBOp BinaryOp Val
+  | KValBOp BinaryOp CEKVal
   | KPrint String
 
 type Kont = [Frame]
+
+-- | Bytecode
+
