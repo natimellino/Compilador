@@ -11,7 +11,7 @@ Este módulo permite compilar módulos a la BVM. También provee una implementac
 para ejecutar bytecode.
 -}
 module Bytecompile
-  (Bytecode, runBC, bcWrite, bcRead,bytecompileModule)
+  (Bytecode, runBC, bcWrite, bcRead, bytecompileModule)
  where
 
 import Lang 
@@ -23,7 +23,6 @@ import qualified Data.ByteString.Lazy as BS
 import Data.Binary ( Word32, Binary(put, get), decode, encode )
 import Data.Binary.Put ( putWord32le )
 import Data.Binary.Get ( getWord32le, isEmpty )
-import Data.Char ( ord, char )
 
 import Data.Char
 
@@ -76,11 +75,7 @@ pattern PRINTN   = 14
 
 bc :: MonadFD4 m => Term -> m Bytecode
 bc (V _ (Bound i)) = return [ACCESS, i]
-bc (V _ (Global nm)) = do mtm <- lookupDecl nm 
-                          case mtm of 
-                            Nothing -> failFD4 $ "Error de compilación: variable no declarada: " ++ ppName nm 
-                            Just t -> bc t
-bc (V _ (Free nm)) = failFD4 $ "Error de compilación: variable libre encontrada" ++ ppName nm
+bc (V _ _) = failFD4 $ "Error de compilación: se encontró una variable libre o global"
 bc (Const _ (CNat n)) = return [CONST, n]
 bc (Lam _ _ _ t) = do ct <- bc t
                       let ft = ct ++ [RETURN]
@@ -88,14 +83,47 @@ bc (Lam _ _ _ t) = do ct <- bc t
 bc (App _ f e) = do cf <- bc f
                     ce <- bc e
                     return $ cf ++ ce ++ [CALL]
-bc (Print _ str t) = do ordStr <- map ord str
+bc (Print _ str t) = do let ordStr = map ord str
                         ct <- bc t
                         return $ [PRINT] ++ ordStr ++ [NULL] ++ ct ++ [PRINTN]
+bc (BinaryOp _ Add t t') = do ct <- bc t
+                              ct' <- bc t'
+                              return $ ct ++ ct' ++ [ADD]
+bc (BinaryOp _ Sub t t') = do ct <- bc t
+                              ct' <- bc t'
+                              return $ ct ++ ct' ++ [SUB]
+bc (Fix _ _ _ _ _ t) = do ct <- bc t
+                          let ft = ct ++ [RETURN]
+                          return $ [FUNCTION, length ft] ++ ft ++ [FIX]
+bc (IfZ _ c t f) = undefined
+bc (Let _ _ _ t t') = do ct <- bc t
+                         ct' <- bc t'
+                         return $ ct ++ [SHIFT] ++ ct' ++ [DROP]
 
 type Module = [Decl Term]
 
 bytecompileModule :: MonadFD4 m => Module -> m Bytecode
-bytecompileModule = error "implementame"
+bytecompileModule p = do let (tp, nms) = compact p []
+                             tp' = global2free tp
+                         ctp <- bc (closeN nms tp')
+                         return $ ctp ++ [PRINTN, STOP]
+
+compact :: Module -> [Name] -> (Term, [Name])
+compact ((Decl i nm ty b):[]) nms = (Let i nm ty b (V i (Free nm)), [nm])
+compact ((Decl i nm ty b) : ds) nms = let (b', nms') = compact ds nms
+                                      in (Let i nm ty b b', (nm : nms'))
+
+global2free :: Term -> Term
+global2free (V i (Global nm)) = (V i (Free nm))
+global2free v@(V _ _) = v 
+global2free c@(Const _ _) = c
+global2free (Lam p nm ty t) = Lam p nm ty $ global2free t           
+global2free (App p f e) = App p (global2free f) (global2free e)
+global2free (Print p str t) = Print p str $ global2free t
+global2free (BinaryOp p op t t') = BinaryOp p op (global2free t) (global2free t')
+global2free (Fix p f fty x xty t) = Fix p f fty x xty (global2free t)
+global2free (IfZ p c t f) = IfZ p (global2free c) (global2free t) (global2free f)
+global2free (Let i nm ty t t') = Let i nm ty (global2free t) (global2free t')  
 
 -- | Toma un bytecode, lo codifica y lo escribe un archivo 
 bcWrite :: Bytecode -> FilePath -> IO ()
