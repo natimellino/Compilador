@@ -151,6 +151,3 @@ data Frame =
   deriving Show
 
 type Kont = [Frame]
-
--- | Bytecode
-

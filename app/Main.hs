@@ -37,6 +37,7 @@ import CEK ( search, val2Term )
 import PPrint ( pp , ppTy, ppDecl )
 import MonadFD4
 import TypeChecker ( tc, tcDecl )
+import Bytecompile ( bytecompileModule, runBC, bcRead, bcWrite )
 
 prompt :: String
 prompt = "FD4> "
@@ -48,8 +49,8 @@ data Mode =
     Interactive
   | Typecheck
   | InteractiveCEK
-  -- | Bytecompile 
-  -- | RunVM
+  | Bytecompile 
+  | RunVM
   -- | CC
   -- | Canon
   -- | LLVM
@@ -60,8 +61,8 @@ parseMode :: Parser (Mode,Bool)
 parseMode = (,) <$> 
       (flag' Typecheck ( long "typecheck" <> short 't' <> help "Chequear tipos e imprimir el término")
       <|> flag' InteractiveCEK (long "interactiveCEK" <> short 'k' <> help "Ejecutar interactivamente en la CEK")
-  -- <|> flag' Bytecompile (long "bytecompile" <> short 'm' <> help "Compilar a la BVM")
-  -- <|> flag' RunVM (long "runVM" <> short 'r' <> help "Ejecutar bytecode en la BVM")
+      <|> flag' Bytecompile (long "bytecompile" <> short 'm' <> help "Compilar a la BVM")
+      <|> flag' RunVM (long "runVM" <> short 'r' <> help "Ejecutar bytecode en la BVM")
       <|> flag Interactive Interactive ( long "interactive" <> short 'i' <> help "Ejecutar en forma interactiva")
   -- <|> flag' CC ( long "cc" <> short 'c' <> help "Compilar a código C")
   -- <|> flag' Canon ( long "canon" <> short 'n' <> help "Imprimir canonicalización")
@@ -93,10 +94,10 @@ main = execParser opts >>= go
     go (InteractiveCEK,_, files) =
               do runFD4 (runInputT defaultSettings (repl files InteractiveCEK))
                  return ()
-    -- go (Bytecompile,_, files) =
-    --           runOrFail $ mapM_ bytecompileFile files
-    -- go (RunVM,_,files) =
-    --           runOrFail $ mapM_ bytecodeRun files
+    go (Bytecompile,_, files) =
+              runOrFail $ mapM_ bytecompileFile files
+    go (RunVM,_,files) =
+              runOrFail $ mapM_ bytecodeRun files
     -- go (CC,_, files) =
     --           runOrFail $ mapM_ ccFile files
     -- go (Canon,_, files) =
@@ -105,6 +106,8 @@ main = execParser opts >>= go
     --           runOrFail $ mapM_ llvmFile files
     -- go (Build,_, files) =
     --           runOrFail $ mapM_ buildFile files
+
+                  
 
 runOrFail :: FD4 a -> IO a
 runOrFail m = do
@@ -334,3 +337,25 @@ typeCheckPhrase x = do
          s <- get
          ty <- tc tt (tyEnv s)
          printFD4 (ppTy ty)
+
+-- Puede tener 2 puntos?
+bytecompileFile :: MonadFD4 m => FilePath -> m ()
+bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
+                       sdecls <- loadFile f
+                       decls <- mapM go sdecls
+                       printFD4 "Compilando a BVM..."
+                       bc <- bytecompileModule decls
+                       printFD4 "Escribiendo archivo..."
+                       liftIO $ bcWrite bc $ (takeWhile (\c -> c /= '.') f ) ++ ".byte"
+                       printFD4 "Archivo compilado"
+                    where go sd = do (Decl p x ty t) <- desugarDecl sd
+                                     t' <- elab t
+                                     let dd = (Decl p x ty t')
+                                     addDecl dd
+                                     return dd
+
+bytecodeRun :: MonadFD4 m => FilePath -> m ()
+bytecodeRun f = do printFD4 ("Abriendo "++f++"...")
+                   bc <- liftIO $ bcRead f
+                   printFD4("Corriendo programa")
+                   runBC bc
