@@ -1,4 +1,0 @@
-let a : Nat = 5
-let b : Nat = 20
-let rec mult (m n : Nat) : Nat = ifz n then 0 else m + (mult m (n - 1))
-let rec fact (n : Nat) : Nat = ifz n then 1 else mult n (fact (n - 1))

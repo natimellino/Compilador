@@ -12,13 +12,13 @@ semOp Add x y=  x + y
 semOp Sub x y = max 0 (x - y)
 
 -- | Búsqueda en el entorno de valores
-lookupEnv :: Env -> Int -> Maybe Val
+lookupEnv :: Env -> Int -> Maybe CEKVal
 lookupEnv [] _ = Nothing
 lookupEnv (x:_) 0 = Just x
 lookupEnv (_ : xs) i = lookupEnv xs (i - 1)
 
 -- | Fase de búsqueda
-search :: MonadFD4 m => Term -> Env -> Kont -> m Val
+search :: MonadFD4 m => Term -> Env -> Kont -> m CEKVal
 search (V _ (Bound i)) e k = case lookupEnv e i of
                                 Nothing -> abort "Error de ejecución: Variable no encontrada"
                                 Just v -> destroy v k
@@ -36,7 +36,7 @@ search (IfZ _ c t u) e k = search c e ((KIfz e t u) : k)
 search (Let _ x xty t u) e k = search t e ((KLet e u) : k)
 
 -- | Fase de reducción
-destroy :: MonadFD4 m => Val -> Kont -> m Val
+destroy :: MonadFD4 m => CEKVal -> Kont -> m CEKVal
 destroy v [] = return v
 destroy v ((KPrint s) : k) = do case v of
                                   N i -> do printFD4 (s++show i)
@@ -54,8 +54,7 @@ destroy v ((KClos (cl@(ClosFix _ _ _ _ e t))) : k) = search t (v : (Cl cl) : e) 
 destroy v ((KLet e t) : k) = search t (v : e) k
 destroy v k = abort ("\nDestroy atascado \n" ++ "Valor: " ++ show v ++ "\n Kont: " ++ show k)
 
--- | Conversión de valores a términos legibles por pprinter
-val2Term :: MonadFD4 m => Val -> m Term
+val2Term :: MonadFD4 m => CEKVal -> m Term
 val2Term v = case v of
               N n -> return (Const NoPos (CNat n))
               Cl clos -> return (clos2Term clos)

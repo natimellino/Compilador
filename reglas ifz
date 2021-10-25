@@ -1,0 +1,4 @@
+C(ifz c then t else e) = FUNCTION(C(e);RETURN);FUNCTION(C(t);RETURN);C(c);IFZ
+
+<IFZ ; c | e | 0 : c_t(et, ct) : c_e(ee, ce) : s> -> <ct | et | R_A(et, c) : s >
+<IFZ ; c | e | n : c_t(et, ct) : c_e(ee, ce) : s> -> <ce | ee | R_A(ee, c) : s >

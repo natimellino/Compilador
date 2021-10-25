@@ -67,7 +67,7 @@ data Tm info var =
   | BinaryOp info BinaryOp (Tm info var) (Tm info var)
   | Fix info Name Ty Name Ty (Tm info var)
   | IfZ info (Tm info var) (Tm info var) (Tm info var)
-  | Let info Name Ty (Tm info var)  (Tm info var)
+  | Let info Name Ty (Tm info var) (Tm info var)
   deriving (Show, Functor)
 
 type NTerm = Tm Pos Name   -- ^ 'Tm' tiene 'Name's como variables ligadas y libres y globales, guarda posición
@@ -136,16 +136,16 @@ data STy =
 
 data Clos = ClosFun Name Ty Env Term | ClosFix Name Ty Name Ty Env Term deriving Show
 
-data Val = N Int | Cl Clos deriving Show
+data CEKVal = N Int | Cl Clos deriving Show
 
-type Env = [Val]
+type Env = [CEKVal]
 
 data Frame = 
     KArg Env Term  
   | KClos Clos
   | KIfz Env Term Term
   | KArgBOp Env BinaryOp Term
-  | KValBOp BinaryOp Val
+  | KValBOp BinaryOp CEKVal
   | KPrint String
   | KLet Env Term
   deriving Show
