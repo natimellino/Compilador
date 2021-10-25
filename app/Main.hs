@@ -21,6 +21,7 @@ import Data.List (nub,  intersperse, isPrefixOf )
 import Data.Char ( isSpace )
 import Control.Exception ( catch , IOException )
 import System.IO ( hPrint, stderr, hPutStrLn )
+import System.FilePath ( splitExtension )
 
 import System.Exit
 --import System.Process ( system )
@@ -155,13 +156,7 @@ loadFile f = do
 
 compileFile ::  MonadFD4 m => FilePath -> Mode -> m ()
 compileFile f mode = do
-    printFD4 ("Abriendo "++f++"...")
-    let filename = reverse(dropWhile isSpace (reverse f))
-    x <- liftIO $ catch (readFile filename)
-               (\e -> do let err = show (e :: IOException)
-                         hPutStrLn stderr ("No se pudo abrir el archivo " ++ filename ++ ": " ++ err)
-                         return "")
-    decls <- parseIO filename program x
+    decls <- loadFile f
     mapM_ (\d -> handleDecl d mode) decls
 
 typecheckFile ::  MonadFD4 m => Bool -> FilePath -> m ()
@@ -338,16 +333,19 @@ typeCheckPhrase x = do
          ty <- tc tt (tyEnv s)
          printFD4 (ppTy ty)
 
--- Puede tener 2 puntos?
+-- Puede tener 2 puntos? Sí
 bytecompileFile :: MonadFD4 m => FilePath -> m ()
 bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
-                       sdecls <- loadFile f
-                       decls <- mapM go sdecls
-                       printFD4 "Compilando a BVM..."
-                       bc <- bytecompileModule decls
-                       printFD4 "Escribiendo archivo..."
-                       liftIO $ bcWrite bc $ (takeWhile (\c -> c /= '.') f ) ++ ".byte"
-                       printFD4 "Archivo compilado"
+                       let (name, ext) = splitExtension f
+                       if ext /= ".fd4"
+                       then failFD4 "Error al abrir el código fuente: extensión inválida."
+                       else do sdecls <- loadFile f
+                               decls <- mapM go sdecls
+                               printFD4 "Compilando a BVM..."
+                               bc <- bytecompileModule decls
+                               printFD4 "Escribiendo archivo..."
+                               liftIO $ bcWrite bc $ name ++ ".byte"
+                               printFD4 "Archivo compilado"                    
                     where go sd = do (Decl p x ty t) <- desugarDecl sd
                                      t' <- elab t
                                      let dd = (Decl p x ty t')
@@ -356,6 +354,10 @@ bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
 
 bytecodeRun :: MonadFD4 m => FilePath -> m ()
 bytecodeRun f = do printFD4 ("Abriendo "++f++"...")
-                   bc <- liftIO $ bcRead f
-                   printFD4("Corriendo programa")
-                   runBC bc
+                   let (_, ext) = splitExtension f
+                   if ext /= ".byte"
+                   then failFD4 "Error al abrir el ejecutable: extensión inválida."
+                   else do bc <- liftIO $ bcRead f
+                           printFD4("Corriendo programa")
+                           runBC bc
+                   

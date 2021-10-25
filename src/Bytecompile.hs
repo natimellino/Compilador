@@ -121,26 +121,18 @@ bc (Let _ _ _ t t') = do ct <- bc t
 type Module = [Decl Term]
 
 bytecompileModule :: MonadFD4 m => Module -> m Bytecode
-bytecompileModule p = do let tp = compact p
+bytecompileModule p = do let tp = compact $ map (fmap (fmap global2free)) p
                          ctp <- bc tp
                          return $ ctp ++ [PRINTN, STOP]
 
 compact :: Module -> Term
 compact ((Decl i nm ty b):[]) = Let i nm ty b (V i (Bound 0))
 compact ((Decl i nm ty b) : ds) = let b' = compact ds
-                                      in Let i nm ty b $ close nm $ global2free b' -- Optimizar esto
+                                  in Let i nm ty b $ close nm b'
 
-global2free :: Term -> Term
-global2free (V i (Global nm)) = (V i (Free nm))
-global2free v@(V _ _) = v 
-global2free c@(Const _ _) = c
-global2free (Lam p nm ty t) = Lam p nm ty $ global2free t           
-global2free (App p f e) = App p (global2free f) (global2free e)
-global2free (Print p str t) = Print p str $ global2free t
-global2free (BinaryOp p op t t') = BinaryOp p op (global2free t) (global2free t')
-global2free (Fix p f fty x xty t) = Fix p f fty x xty (global2free t)
-global2free (IfZ p c t f) = IfZ p (global2free c) (global2free t) (global2free f)
-global2free (Let i nm ty t t') = Let i nm ty (global2free t) (global2free t')  
+global2free :: Var -> Var
+global2free (Global nm) = Free nm
+global2free v = v
 
 -- | Toma un bytecode, lo codifica y lo escribe un archivo 
 bcWrite :: Bytecode -> FilePath -> IO ()
