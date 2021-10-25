@@ -1,5 +1,7 @@
 let a : Nat = 5
 let b : Nat = 20
-let rec mult (m n : Nat) : Nat = ifz n then 0 else m + (mult m (n - 1))
-let rec fact (n : Nat) : Nat = ifz n then 1 else mult n (fact (n - 1))
-let c : Nat = (fact a) + b
+type hola = Nat
+type test = Nat
+let rec mult (m n : test) : hola = ifz n then 0 else m + (mult m (n - 1))
+let rec fact (n : hola) : test = ifz n then 1 else mult n (fact (n - 1))
+let c : hola = (fact a) + b

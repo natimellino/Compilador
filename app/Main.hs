@@ -340,17 +340,22 @@ bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
                        if ext /= ".fd4"
                        then failFD4 "Error al abrir el código fuente: extensión inválida."
                        else do sdecls <- loadFile f
-                               decls <- mapM go sdecls
+                               decls <- go sdecls
                                printFD4 "Compilando a BVM..."
                                bc <- bytecompileModule decls
                                printFD4 "Escribiendo archivo..."
                                liftIO $ bcWrite bc $ name ++ ".byte"
                                printFD4 "Archivo compilado"                    
-                    where go sd = do (Decl p x ty t) <- desugarDecl sd
-                                     t' <- elab t
-                                     let dd = (Decl p x ty t')
-                                     addDecl dd
-                                     return dd
+                    where go [] = return []
+                          go (sd:xs) = case sd of
+                                        (DeclSTy _ n t) -> do ty <- desugarTy t
+                                                              addSTy n ty
+                                                              go xs
+                                        _ -> do (Decl p x ty t) <- desugarDecl sd
+                                                t' <- elab t
+                                                let dd = (Decl p x ty t')
+                                                xs' <- go xs
+                                                return (dd : xs')
 
 bytecodeRun :: MonadFD4 m => FilePath -> m ()
 bytecodeRun f = do printFD4 ("Abriendo "++f++"...")
