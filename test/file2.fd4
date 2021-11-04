@@ -1,3 +1,2 @@
-let a : Nat = 5
-let b : Nat = 20
-let c:Nat = a+b
+let rec suma (m n : Nat) : Nat = ifz n then m else suma (1 + m) (n - 1)
+let a : Nat = suma 2 3

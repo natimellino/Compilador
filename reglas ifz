@@ -1,4 +1,31 @@
-C(ifz c then t else e) = FUNCTION(C(e);RETURN);FUNCTION(C(t);RETURN);C(c);IFZ
+C(ifz c then t else e) = 
+    FUNCTION(C(e);RETURN);FUNCTION(C(t);RETURN);C(c);IFZ
 
-<IFZ ; c | e | 0 : c_t(et, ct) : c_e(ee, ce) : s> -> <ct | et | R_A(et, c) : s >
-<IFZ ; c | e | n : c_t(et, ct) : c_e(ee, ce) : s> -> <ce | ee | R_A(ee, c) : s >
+<IFZ ; c | e | 0 : c_t(et, ct) : c_e(ee, ce) : s> -> 
+    <ct | et | R_A(et, c) : s >
+
+<IFZ ; c | e | n : c_t(et, ct) : c_e(ee, ce) : s> -> 
+    <ce | ee | R_A(ee, c) : s >
+--------------------------------------------------------------------
+
+Alternativa:
+
+C(ifz c then t  else e):
+
+    C(c) ; IFZ n ; C(t) ; JUMP m; C(e)
+
+    donde n = length C(t)
+          m = length C(e)
+    Entonces si tengo que ejecutar la rama C(t) con SKIP salteo C(e)
+    y si tengo que ejecutar C(e), co JUMP salteo la rama C(t)
+
+    El IFZ al final q onda ???? Creo  q no sirveeee
+
+Reglas nuevas:
+
+< IFZ; len; c | e | 0:s > ---> < c | e | s >               -- dejo el valor para el skip dp asi sabe si se tiene q hacer o no
+< IFZ; len; c | e | n:s > ---> < saltear(l, c) | e | s >   -- debo ejecutar la segunda condicion ent salteo
+
+< SKIP; len; c | e | s > ---> < drop len c | e | s >
+
+<TAILCALL ; c | e | (v ; (eg, cg) ; s)> -> <cg | v ; eg | s> 
