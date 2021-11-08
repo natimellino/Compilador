@@ -84,13 +84,15 @@ pattern SHIFT    = 11
 pattern DROP     = 12
 pattern PRINT    = 13
 pattern PRINTN   = 14
+pattern JUMP     = 15
+pattern TAILCALL = 16
 
 bc :: MonadFD4 m => Term -> m Bytecode
 bc (V _ (Bound i)) = return [ACCESS, i]
 bc (V _ (Global nm)) = failFD4 $ "Error de compilación: se encontró una variable global: " ++ ppName nm
 bc (V _ (Free nm)) = failFD4 $ "Error de compilación: se encontró una variable libre: " ++ ppName nm
 bc (Const _ (CNat n)) = return [CONST, n]
-bc (Lam _ _ _ t) = do ct <- bc t
+bc (Lam _ _ _ t) = do ct <- bt t
                       let ft = ct ++ [RETURN]
                       return $ [FUNCTION, length ft] ++ ft                   
 bc (App _ f e) = do cf <- bc f
@@ -111,12 +113,24 @@ bc (Fix _ _ _ _ _ t) = do ct <- bc t
 bc (IfZ _ c t e) = do cc <- bc c
                       ct <- bc t
                       ce <- bc e
-                      let ct' = [FUNCTION, (length ct + 1)] ++ ct ++[RETURN]
-                          ce' = [FUNCTION, (length ce + 1)] ++ ce ++[RETURN]
-                      return $ ce' ++ ct' ++ cc ++ [IFZ]
+                      return $ cc ++ [IFZ, length ct + 2] ++ ct ++ [JUMP, length ce] ++ ce
 bc (Let _ _ _ t t') = do ct <- bc t
                          ct' <- bc t'
                          return $ ct ++ [SHIFT] ++ ct' ++ [DROP]
+
+bt :: MonadFD4 m => Term -> m Bytecode
+bt (App _ f e) = do cf <- bc f
+                    ce <- bc e
+                    return $ cf ++ ce ++ [TAILCALL]
+bt (IfZ _ c t e) = do cc <- bc c
+                      ct <- bt t
+                      ce <- bt e
+                      return $ cc ++ [IFZ, length ct] ++ ct ++ ce
+bt (Let _ _ _ t t') = do ct <- bc t
+                         ct' <- bt t'
+                         return $ ct ++ [SHIFT] ++ ct'
+bt t = do ct <- bc t
+          return $ ct ++ [RETURN]
 
 type Module = [Decl Term]
 
@@ -169,7 +183,11 @@ runBC' (PRINT : c) e s = do let (str, k) = break (== NULL) c
                             runBC' k e s
 runBC' (FIX : c) e ((Fun ef cf) : s) = do let efix = (Fun (efix : ef) cf)
                                           runBC' c e (efix : s)
-runBC' (IFZ : c) e ((I 0) : (Fun et ct) : _ : s) = runBC' ct et ((RA et c) : s)
-runBC' (IFZ : c) e ((I _) : _ : (Fun ee ce) : s) = runBC' ce ee ((RA ee c) : s)
+runBC' (IFZ : l : c) e ((I 0) : s) = runBC' c e s
+runBC' (IFZ : l : c) e ((I _) : s) = do let code = drop l c
+                                        runBC' code e s
+runBC' (JUMP : l : c) e s = do let code = drop l c
+                               runBC' code e s
+runBC' (TAILCALL : _) _ (v : (Fun eg cg) : s) = runBC' cg (v : eg) s
 runBC' (STOP : _) _ _ = return ()
 runBC' _ _ _ = failFD4 "Cómo llegaste acá?"
