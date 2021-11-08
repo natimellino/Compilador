@@ -284,12 +284,25 @@ void run(code init_c)
 			break;
 		}
 
-/*
+
 		case TAILCALL: {
+			value val = *--s;
+			struct clo claus = (*--s).clo;
+
+			c = claus.clo_body;
+			e = env_push(claus.clo_env, val);
+
+			break;
 		}
-*/
+
 		case IFZ: {
-			quit("IFZ no implementado");
+			uint32_t cond = (*--s).i;
+			int leng = *c++;
+
+			if (cond) { // cond != 0
+				c += leng;
+			}
+			
 			break;
         }
         

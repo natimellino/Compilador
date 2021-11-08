@@ -24,8 +24,8 @@ C(ifz c then t  else e):
 Reglas nuevas:
 
 < IFZ; len; c | e | 0:s > ---> < c | e | s >               -- dejo el valor para el skip dp asi sabe si se tiene q hacer o no
-< IFZ; len; c | e | n:s > ---> < saltear(l, c) | e | s >   -- debo ejecutar la segunda condicion ent salteo
+< IFZ; len; c | e | n:s > ---> < saltear(len, c) | e | s >   -- debo ejecutar la segunda condicion ent salteo
 
-< SKIP; len; c | e | s > ---> < drop len c | e | s >
+< JUMP; len; c | e | s > ---> < drop len c | e | s >
 
-<TAILCALL ; c | e | (v ; (eg, cg) ; s)> -> <cg | v ; eg | s> 
+<TAILCALL ; c | e | v : (eg, cg) : s> -> <cg | v ; eg | s> 
