@@ -39,6 +39,7 @@ import PPrint ( pp , ppTy, ppDecl )
 import MonadFD4
 import TypeChecker ( tc, tcDecl )
 import Bytecompile ( bytecompileModule, runBC, bcRead, bcWrite )
+import Optimize ( optimize )
 
 prompt :: String
 prompt = "FD4> "
@@ -70,9 +71,9 @@ parseMode = (,) <$>
   -- <|> flag' LLVM ( long "llvm" <> short 'l' <> help "Imprimir LLVM resultante")
   -- <|> flag' Build ( long "build" <> short 'b' <> help "Compilar")
       )
-   <*> pure False
+   -- <*> pure False
    -- reemplazar por la siguiente línea para habilitar opción
-   -- <*> flag False True (long "optimize" <> short 'o' <> help "Optimizar código")
+   <*> flag False True (long "optimize" <> short 'o' <> help "Optimizar código")
   
 -- | Parser de opciones general, consiste de un modo y una lista de archivos a procesar
 parseArgs :: Parser (Mode,Bool, [FilePath])
@@ -87,32 +88,32 @@ main = execParser opts >>= go
      <> header "Compilador de FD4 de la materia Compiladores 2021" )
 
     go :: (Mode,Bool,[FilePath]) -> IO ()
-    go (Interactive,_,files) = 
-              do runFD4 (runInputT defaultSettings (repl files Interactive))
+    go (Interactive,opt,files) = 
+              do runFD4 opt (runInputT defaultSettings (repl files Interactive))
                  return ()
     go (Typecheck,opt, files) =
-              runOrFail $ mapM_ (typecheckFile opt) files              
-    go (InteractiveCEK,_, files) =
-              do runFD4 (runInputT defaultSettings (repl files InteractiveCEK))
+              runOrFail opt $ mapM_ typecheckFile files              
+    go (InteractiveCEK,opt, files) =
+              do runFD4 opt (runInputT defaultSettings (repl files InteractiveCEK))
                  return ()
-    go (Bytecompile,_, files) =
-              runOrFail $ mapM_ bytecompileFile files
-    go (RunVM,_,files) =
-              runOrFail $ mapM_ bytecodeRun files
-    -- go (CC,_, files) =
-    --           runOrFail $ mapM_ ccFile files
-    -- go (Canon,_, files) =
-    --           runOrFail $ mapM_ canonFile files 
-    -- go (LLVM,_, files) =
-    --           runOrFail $ mapM_ llvmFile files
-    -- go (Build,_, files) =
-    --           runOrFail $ mapM_ buildFile files
+    go (Bytecompile,opt, files) =
+              runOrFail opt $ mapM_ bytecompileFile files
+    go (RunVM,opt,files) =
+              runOrFail opt $ mapM_ bytecodeRun files
+    -- go (CC,opt, files) =
+    --           runOrFail opt $ mapM_ ccFile files
+    -- go (Canon,opt, files) =
+    --           runOrFail opt $ mapM_ canonFile files 
+    -- go (LLVM,opt, files) =
+    --           runOrFail opt $ mapM_ llvmFile files
+    -- go (Build,opt, files) =
+    --           runOrFail opt $ mapM_ buildFile files
 
                   
 
-runOrFail :: FD4 a -> IO a
-runOrFail m = do
-  r <- runFD4 m
+runOrFail :: Bool -> FD4 a -> IO a
+runOrFail b m = do
+  r <- runFD4 b m
   case r of
     Left err -> do
       liftIO $ hPrint stderr err
@@ -159,8 +160,8 @@ compileFile f mode = do
     decls <- loadFile f
     mapM_ (\d -> handleDecl d mode) decls
 
-typecheckFile ::  MonadFD4 m => Bool -> FilePath -> m ()
-typecheckFile opt f = do
+typecheckFile ::  MonadFD4 m => FilePath -> m ()
+typecheckFile f = do
     printFD4  ("Chequeando "++f)
     decls <- loadFile f
     ppterms <- mapM (desugarDecl >=> typecheckDecl >=> ppDecl) decls
@@ -173,10 +174,11 @@ parseIO filename p x = case runP p x filename of
 
 typecheckDecl :: MonadFD4 m => Decl NTerm -> m (Decl Term)
 typecheckDecl (Decl p x ty t) = do
-        t' <- elab t
-        let dd = (Decl p x ty t')
+        tt <- elab t
+        let dd = (Decl p x ty tt)
         tcDecl dd
-        return dd
+        optt <- optimize tt
+        return (Decl p x ty optt)
 
 handleDecl ::  MonadFD4 m => SDecl -> Mode -> m ()
 handleDecl (DeclSTy _ n t) _ = do ty <- desugarTy t
@@ -189,17 +191,18 @@ handleDecl d m = case m of
 handleDeclBigS ::  MonadFD4 m => SDecl -> m ()
 handleDeclBigS d = do decl <- desugarDecl d
                       (Decl p x ty tt) <- typecheckDecl decl
-                      te <- eval tt 
+                      optt <- optimize tt
+                      te <- eval optt
                       addDecl (Decl p x ty te)
 
 handleDeclCEK :: MonadFD4 m => SDecl -> m ()
 handleDeclCEK d = do decl <- desugarDecl d
                      (Decl p x ty tt) <- typecheckDecl decl
-                     v <- search tt [] [] 
+                     optt <- optimize tt
+                     v <- search optt [] [] 
                      te <- val2Term v 
                      addDecl (Decl p x ty te)
                   
-
 data Command = Compile CompileForm
              | PPrint String
              | Type String
@@ -294,7 +297,8 @@ handleTermBigS t = do  t' <- desugar t
                        tt <- elab t'
                        s <- get
                        ty <- tc tt (tyEnv s)
-                       te <- eval tt
+                       optt <- optimize tt
+                       te <- eval optt
                        ppte <- pp te
                        printFD4 (ppte ++ " : " ++ ppTy ty)
 
@@ -303,7 +307,8 @@ handleTermCEK t = do t' <- desugar t
                      tt <- elab t'
                      s <- get
                      ty <- tc tt (tyEnv s)
-                     v <- search tt [] []
+                     optt <- optimize tt
+                     v <- search optt [] []
                      te <- val2Term v
                      ppte <- pp te
                      printFD4 (ppte ++ " : " ++ ppTy ty)
@@ -351,9 +356,10 @@ bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
                                         (DeclSTy _ n t) -> do ty <- desugarTy t
                                                               addSTy n ty
                                                               go xs
-                                        _ -> do (Decl p x ty t) <- desugarDecl sd
-                                                t' <- elab t
-                                                let dd = (Decl p x ty t')
+                                        _ -> do decl <- desugarDecl sd
+                                                (Decl p x ty tt) <- typecheckDecl decl
+                                                optt <- optimize tt
+                                                let dd = (Decl p x ty optt)
                                                 xs' <- go xs
                                                 return (dd : xs')
 
