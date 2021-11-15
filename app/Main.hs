@@ -160,6 +160,7 @@ compileFile f mode = do
     decls <- loadFile f
     mapM_ (\d -> handleDecl d mode) decls
 
+-- TODO: Falla con declaraciones de tipo
 typecheckFile ::  MonadFD4 m => FilePath -> m ()
 typecheckFile f = do
     printFD4  ("Chequeando "++f)

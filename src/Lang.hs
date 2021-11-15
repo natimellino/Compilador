@@ -30,10 +30,10 @@ data Ty =
 type Name = String
 
 data Const = CNat Int
-  deriving Show
+  deriving (Show, Eq)
 
 data BinaryOp = Add | Sub
-  deriving Show
+  deriving (Show, Eq)
 
 -- | tipo de datos de declaraciones, parametrizado por el tipo del cuerpo de la declaración
 data Decl a = Decl
@@ -70,6 +70,18 @@ data Tm info var =
   | Let info Name Ty (Tm info var) (Tm info var)
   deriving (Show, Functor)
 
+instance Eq var => Eq (Tm info var) where
+  (==) (V _ v) (V _ v') = v == v'
+  (==) (Const _ c) (Const _ c') = c == c'
+  (==) (Lam _ n ty t) (Lam _ n' ty' t') = n == n' && ty == ty' && t == t'
+  (==) (App _ t u) (App _ t' u') = t == t' && u == u'
+  (==) (Print _ str t) (Print _ str' t') = str == str' && t == t'
+  (==) (BinaryOp _ op t u) (BinaryOp _ op' t' u') = op == op' && t == t' && u == u'
+  (==) (Fix _ n ty n' tt t) (Fix _ m ty' m' tt' t') = n == m && ty == ty' && n' == m' && tt == tt' && t == t'
+  (==) (IfZ _ c t e) (IfZ _ c' t' e') = c == c' && t == t' && e == e'
+  (==) (Let _ n ty t u) (Let _ n' ty' t' u') = n == n' && ty == ty' && t == t' && u == u'
+  (==) _ _ = False
+
 type NTerm = Tm Pos Name   -- ^ 'Tm' tiene 'Name's como variables ligadas y libres y globales, guarda posición
 type Term = Tm Pos Var     -- ^ 'Tm' con índices de De Bruijn como variables ligadas, y nombres para libres y globales, guarda posición
 
@@ -77,7 +89,7 @@ data Var =
     Bound !Int
   | Free Name
   | Global Name
-  deriving Show
+  deriving (Show, Eq)
 
 -- | Obtiene la info en la raíz del término.
 getInfo :: Tm info var -> info

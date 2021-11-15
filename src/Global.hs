@@ -24,4 +24,4 @@ data GlEnv = GlEnv {
 
 -- | Valor del estado inicial
 initialEnv :: GlEnv
-initialEnv = GlEnv True False 10 "" 0 [] [] []
+initialEnv = GlEnv True False 100 "" 0 [] [] []
