@@ -40,6 +40,8 @@ import MonadFD4
 import TypeChecker ( tc, tcDecl )
 import Bytecompile ( bytecompileModule, runBC, bcRead, bcWrite )
 import Optimize ( optimize )
+import ClosureConvert ( runCC )
+import C ( ir2C )
 
 prompt :: String
 prompt = "FD4> "
@@ -53,7 +55,7 @@ data Mode =
   | InteractiveCEK
   | Bytecompile 
   | RunVM
-  -- | CC
+  | CC
   -- | Canon
   -- | LLVM
   -- | Build
@@ -66,7 +68,7 @@ parseMode = (,) <$>
       <|> flag' Bytecompile (long "bytecompile" <> short 'm' <> help "Compilar a la BVM")
       <|> flag' RunVM (long "runVM" <> short 'r' <> help "Ejecutar bytecode en la BVM")
       <|> flag Interactive Interactive ( long "interactive" <> short 'i' <> help "Ejecutar en forma interactiva")
-  -- <|> flag' CC ( long "cc" <> short 'c' <> help "Compilar a código C")
+      <|> flag' CC ( long "cc" <> short 'c' <> help "Compilar a código C")
   -- <|> flag' Canon ( long "canon" <> short 'n' <> help "Imprimir canonicalización")
   -- <|> flag' LLVM ( long "llvm" <> short 'l' <> help "Imprimir LLVM resultante")
   -- <|> flag' Build ( long "build" <> short 'b' <> help "Compilar")
@@ -100,8 +102,8 @@ main = execParser opts >>= go
               runOrFail opt $ mapM_ bytecompileFile files
     go (RunVM,opt,files) =
               runOrFail opt $ mapM_ bytecodeRun files
-    -- go (CC,opt, files) =
-    --           runOrFail opt $ mapM_ ccFile files
+    go (CC,opt, files) =
+              runOrFail opt $ mapM_ ccFile files
     -- go (Canon,opt, files) =
     --           runOrFail opt $ mapM_ canonFile files 
     -- go (LLVM,opt, files) =
@@ -372,4 +374,27 @@ bytecodeRun f = do printFD4 ("Abriendo "++f++"...")
                    else do bc <- liftIO $ bcRead f
                            printFD4("Corriendo programa")
                            runBC bc
-                   
+
+ccFile :: MonadFD4 m => FilePath -> m ()
+ccFile f = do printFD4 ("Abriendo "++f++"...")
+              let (name, ext) = splitExtension f
+              if ext /= ".fd4"
+              then failFD4 "Error al abrir el código fuente: extensión inválida."
+              else do sdecls <- loadFile f
+                      decls <- go sdecls
+                      printFD4 "Compilando a C..."
+                      let cc = (ir2C . runCC) decls
+                      printFD4 "Escribiendo archivo..."
+                      liftIO $ writeFile (name ++ ".c") cc
+                      printFD4 "Archivo compilado"                    
+              where go [] = return []
+                    go (sd:xs) = case sd of
+                                  (DeclSTy _ n t) -> do ty <- desugarTy t
+                                                        addSTy n ty
+                                                        go xs
+                                  _ -> do decl <- desugarDecl sd
+                                          (Decl p x ty tt) <- typecheckDecl decl
+                                          optt <- optimize tt
+                                          let dd = (Decl p x ty optt)
+                                          xs' <- go xs
+                                          return (dd : xs')

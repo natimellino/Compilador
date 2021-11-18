@@ -68,5 +68,5 @@ prelude = pretty "#include <inttypes.h>"
 irPrintN :: Doc a -> Doc a
 irPrintN x = pretty "fd4_printn" <> parens (u64 <> x)
 
-ir2C :: IrDecls -> String
-ir2C (IrDecls xs) = unpack . renderStrict . layoutSmart defaultLayoutOptions $ vsep (prelude : map decl2doc xs ++ [fd4Main xs])
+ir2C :: [IrDecl] -> String
+ir2C xs = unpack . renderStrict . layoutSmart defaultLayoutOptions $ vsep (prelude : map decl2doc xs ++ [fd4Main xs])
