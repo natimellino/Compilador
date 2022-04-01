@@ -12,4 +12,8 @@ app/Main
 *.blg
 *.bbl
 compiladores.cabal
-
+test/*.byte
+test/*.c
+test/correctos/*.byte
+test/correctos/*.c
+.HTF

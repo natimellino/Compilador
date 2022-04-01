@@ -66,7 +66,8 @@ y otras operaciones derivadas de ellas, como por ejemplo
 class (MonadIO m, MonadState GlEnv m, MonadError Error m) => MonadFD4 m where
 
 printFD4 :: MonadFD4 m => String -> m ()
-printFD4 = liftIO . putStrLn
+-- printFD4 = liftIO . putStrLn
+printFD4 s = return ()
 
 setLastFile :: MonadFD4 m => FilePath -> m ()
 setLastFile filename = modify (\s -> s {lfile = filename})

@@ -2,7 +2,7 @@
 
 filename="${@%.*}"
 # echo "Compiling and Running $filename  ($PWD)"
-stack run -- -c "$@" ; gcc runtime.c -lgc $filename.c
+stack run -- -c "$@" ; gcc runtime.c -lgc -Wno-int-conversion $filename.c
 ./a.out
 rm a.out
 # echo "Cleaning $filename"

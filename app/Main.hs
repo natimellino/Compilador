@@ -69,9 +69,6 @@ parseMode = (,) <$>
       <|> flag' RunVM (long "runVM" <> short 'r' <> help "Ejecutar bytecode en la BVM")
       <|> flag Interactive Interactive ( long "interactive" <> short 'i' <> help "Ejecutar en forma interactiva")
       <|> flag' CC ( long "cc" <> short 'c' <> help "Compilar a código C")
-  -- <|> flag' Canon ( long "canon" <> short 'n' <> help "Imprimir canonicalización")
-  -- <|> flag' LLVM ( long "llvm" <> short 'l' <> help "Imprimir LLVM resultante")
-  -- <|> flag' Build ( long "build" <> short 'b' <> help "Compilar")
       )
    -- <*> pure False
    -- reemplazar por la siguiente línea para habilitar opción
@@ -103,15 +100,7 @@ main = execParser opts >>= go
     go (RunVM,opt,files) =
               runOrFail opt $ mapM_ bytecodeRun files
     go (CC,opt, files) =
-              runOrFail opt $ mapM_ ccFile files
-    -- go (Canon,opt, files) =
-    --           runOrFail opt $ mapM_ canonFile files 
-    -- go (LLVM,opt, files) =
-    --           runOrFail opt $ mapM_ llvmFile files
-    -- go (Build,opt, files) =
-    --           runOrFail opt $ mapM_ buildFile files
-
-                  
+              runOrFail opt $ mapM_ ccFile files   
 
 runOrFail :: Bool -> FD4 a -> IO a
 runOrFail b m = do
@@ -140,72 +129,6 @@ repl args mode = do
                        b <- lift $ catchErrors $ handleCommand c mode
                        maybe loop (`when` loop) b
 
-compileFiles ::  MonadFD4 m => [FilePath] -> Mode -> m ()
-compileFiles [] _        = return ()
-compileFiles (x:xs) mode = do
-        modify (\s -> s { lfile = x, inter = False })
-        compileFile x mode
-        compileFiles xs mode
-
-loadFile ::  MonadFD4 m => FilePath -> m [SDecl]
-loadFile f = do
-    let filename = reverse(dropWhile isSpace (reverse f))
-    x <- liftIO $ catch (readFile filename)
-               (\e -> do let err = show (e :: IOException)
-                         hPutStrLn stderr ("No se pudo abrir el archivo " ++ filename ++ ": " ++ err)
-                         return "")
-    setLastFile filename
-    parseIO filename program x
-
-compileFile ::  MonadFD4 m => FilePath -> Mode -> m ()
-compileFile f mode = do
-    decls <- loadFile f
-    mapM_ (\d -> handleDecl d mode) decls
-
--- TODO: Falla con declaraciones de tipo
-typecheckFile ::  MonadFD4 m => FilePath -> m ()
-typecheckFile f = do
-    printFD4  ("Chequeando "++f)
-    decls <- loadFile f
-    ppterms <- mapM (desugarDecl >=> typecheckDecl >=> ppDecl) decls
-    mapM_ printFD4 ppterms
-
-parseIO ::  MonadFD4 m => String -> P a -> String -> m a
-parseIO filename p x = case runP p x filename of
-                  Left e  -> throwError (ParseErr e)
-                  Right r -> return r
-
-typecheckDecl :: MonadFD4 m => Decl NTerm -> m (Decl Term)
-typecheckDecl (Decl p x ty t) = do
-        tt <- elab t
-        let dd = (Decl p x ty tt)
-        tcDecl dd
-        optt <- optimize tt
-        return (Decl p x ty optt)
-
-handleDecl ::  MonadFD4 m => SDecl -> Mode -> m ()
-handleDecl (DeclSTy _ n t) _ = do ty <- desugarTy t
-                                  addSTy n ty
-handleDecl d m = case m of
-                    Interactive -> handleDeclBigS d
-                    InteractiveCEK -> handleDeclCEK d
-                    _ -> failFD4 "Modo inválido"
-
-handleDeclBigS ::  MonadFD4 m => SDecl -> m ()
-handleDeclBigS d = do decl <- desugarDecl d
-                      (Decl p x ty tt) <- typecheckDecl decl
-                      optt <- optimize tt
-                      te <- eval optt
-                      addDecl (Decl p x ty te)
-
-handleDeclCEK :: MonadFD4 m => SDecl -> m ()
-handleDeclCEK d = do decl <- desugarDecl d
-                     (Decl p x ty tt) <- typecheckDecl decl
-                     optt <- optimize tt
-                     v <- search optt [] [] 
-                     te <- val2Term v 
-                     addDecl (Decl p x ty te)
-                  
 data Command = Compile CompileForm
              | PPrint String
              | Type String
@@ -219,26 +142,6 @@ data CompileForm = CompileInteractive  String
                  | CompileFile         String
 
 data InteractiveCommand = Cmd [String] String (String -> Command) String
-
--- | Parser simple de comando interactivos
-interpretCommand :: String -> IO Command
-interpretCommand x
-  =  if isPrefixOf ":" x then
-       do  let  (cmd,t')  =  break isSpace x
-                t         =  dropWhile isSpace t'
-           --  find matching commands
-           let  matching  =  filter (\ (Cmd cs _ _ _) -> any (isPrefixOf cmd) cs) commands
-           case matching of
-             []  ->  do  putStrLn ("Comando desconocido `" ++ cmd ++ "'. Escriba :? para recibir ayuda.")
-                         return Noop
-             [Cmd _ _ f _]
-                 ->  do  return (f t)
-             _   ->  do  putStrLn ("Comando ambigüo, podría ser " ++
-                                   concat (intersperse ", " [ head cs | Cmd cs _ _ _ <- matching ]) ++ ".")
-                         return Noop
-
-     else
-       return (Compile (CompileInteractive x))
 
 commands :: [InteractiveCommand]
 commands
@@ -261,6 +164,26 @@ helpTxt cs
                    let  ct = concat (intersperse ", " (map (++ if null a then "" else " " ++ a) c))
                    in   ct ++ replicate ((24 - length ct) `max` 2) ' ' ++ d) cs)
 
+-- | Parser simple de comando interactivos
+interpretCommand :: String -> IO Command
+interpretCommand x
+  =  if isPrefixOf ":" x then
+       do  let  (cmd,t')  =  break isSpace x
+                t         =  dropWhile isSpace t'
+           --  find matching commands
+           let  matching  =  filter (\ (Cmd cs _ _ _) -> any (isPrefixOf cmd) cs) commands
+           case matching of
+             []  ->  do  putStrLn ("Comando desconocido `" ++ cmd ++ "'. Escriba :? para recibir ayuda.")
+                         return Noop
+             [Cmd _ _ f _]
+                 ->  do  return (f t)
+             _   ->  do  putStrLn ("Comando ambigüo, podría ser " ++
+                                   concat (intersperse ", " [ head cs | Cmd cs _ _ _ <- matching ]) ++ ".")
+                         return Noop
+
+     else
+       return (Compile (CompileInteractive x))
+
 -- | 'handleCommand' interpreta un comando y devuelve un booleano
 -- indicando si se debe salir del programa o no.
 handleCommand ::  MonadFD4 m => Command -> Mode -> m Bool
@@ -280,6 +203,11 @@ handleCommand cmd mode = do
        Reload ->  eraseLastFileDecls >> (getLastFile >>= (\f -> compileFile f mode)) >> return True
        PPrint e   -> printPhrase e >> return True
        Type e    -> typeCheckPhrase e >> return True
+
+parseIO ::  MonadFD4 m => String -> P a -> String -> m a
+parseIO filename p x = case runP p x filename of
+                  Left e  -> throwError (ParseErr e)
+                  Right r -> return r
 
 compilePhrase ::  MonadFD4 m => String -> Mode -> m ()
 compilePhrase x mode =
@@ -341,6 +269,76 @@ typeCheckPhrase x = do
          ty <- tc tt (tyEnv s)
          printFD4 (ppTy ty)
 
+loadFile ::  MonadFD4 m => FilePath -> m [SDecl]
+loadFile f = do
+    let filename = reverse(dropWhile isSpace (reverse f))
+    x <- liftIO $ catch (readFile filename)
+               (\e -> do let err = show (e :: IOException)
+                         hPutStrLn stderr ("No se pudo abrir el archivo " ++ filename ++ ": " ++ err)
+                         return "")
+    setLastFile filename
+    parseIO filename program x
+
+compileFiles ::  MonadFD4 m => [FilePath] -> Mode -> m ()
+compileFiles [] _        = return ()
+compileFiles (x:xs) mode = do
+        modify (\s -> s { lfile = x, inter = False })
+        compileFile x mode
+        compileFiles xs mode
+
+compileFile ::  MonadFD4 m => FilePath -> Mode -> m ()
+compileFile f mode = do
+    decls <- loadFile f
+    mapM_ (\d -> handleDecl d mode) decls
+
+typecheckFile ::  MonadFD4 m => FilePath -> m ()
+typecheckFile f = do
+    printFD4  ("Chequeando " ++ f)
+    decls <- loadFile f
+    ppterms <- go decls
+    mapM_ printFD4 ppterms
+    where
+      go :: MonadFD4 m => [SDecl] -> m [String]
+      go [] = return []
+      go ((DeclSTy _ n t) : ds) = do ty <- desugarTy t
+                                     addSTy n ty
+                                     go ds
+      go (decl : ds) = do decl' <- desugarDecl >=> typecheckDecl $ decl
+                          opDecl <- optimizeDecl decl' 
+                          ppOpDecl <- ppDecl opDecl
+                          ds' <- go ds
+                          return $ ppOpDecl : ds'
+
+typecheckDecl :: MonadFD4 m => Decl NTerm -> m (Decl Term)
+typecheckDecl (Decl p x ty t) = do
+        tt <- elab t
+        let dd = (Decl p x ty tt)
+        tcDecl dd
+        return (Decl p x ty tt)
+
+handleDecl ::  MonadFD4 m => SDecl -> Mode -> m ()
+handleDecl (DeclSTy _ n t) _ = do ty <- desugarTy t
+                                  addSTy n ty
+handleDecl d m = case m of
+                    Interactive -> handleDeclBigS d
+                    InteractiveCEK -> handleDeclCEK d
+                    _ -> failFD4 "Modo inválido"
+
+handleDeclBigS ::  MonadFD4 m => SDecl -> m ()
+handleDeclBigS d = do decl <- desugarDecl d
+                      decl' <- typecheckDecl decl
+                      (Decl p x ty tt) <- optimizeDecl decl'
+                      te <- eval tt
+                      addDecl (Decl p x ty te)
+
+handleDeclCEK :: MonadFD4 m => SDecl -> m ()
+handleDeclCEK d = do decl <- desugarDecl d
+                     decl' <- typecheckDecl decl
+                     (Decl p x ty tt) <- optimizeDecl decl'
+                     v <- search tt [] [] 
+                     te <- val2Term v 
+                     addDecl (Decl p x ty te)
+
 -- Puede tener 2 puntos? Sí
 bytecompileFile :: MonadFD4 m => FilePath -> m ()
 bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
@@ -398,3 +396,7 @@ ccFile f = do printFD4 ("Abriendo "++f++"...")
                                           let dd = (Decl p x ty optt)
                                           xs' <- go xs
                                           return (dd : xs')
+
+optimizeDecl :: MonadFD4 m => Decl Term -> m (Decl Term)
+optimizeDecl (Decl p x ty t) = do optt <- optimize t
+                                  return (Decl p x ty optt)

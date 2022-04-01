@@ -19,53 +19,65 @@ optimizeN n t = do t1 <- constantFolding t
                               else return t
 
 constantFolding :: MonadFD4 m => Term -> m Term
-constantFolding (BinaryOp i op t t') = do tt  <- constantFolding t
-                                          tt' <- constantFolding t'
-                                          case tt of 
-                                            (Const _ (CNat n)) -> do case tt' of
-                                                                       (Const _ (CNat m)) -> return $ Const i $ CNat (semOp op n m) 
-                                                                       _ -> return $ BinaryOp i op tt tt'
-                                            _  -> return $ BinaryOp i op tt tt'
-constantFolding t@(Const _ _) = return t                                               
-constantFolding t@(V _ _) = return t
-constantFolding (Lam i n ty t) = do tt <- constantFolding t
-                                    return $ Lam i n ty tt
-constantFolding (App i t t') = do tt <- constantFolding t
-                                  tt' <- constantFolding t'
-                                  return $ App i tt tt'
-constantFolding (Print i s t) = do tt <- constantFolding t
-                                   return $ Print i s tt
-constantFolding (Fix i n ty n' ty' t) = do tt <- constantFolding t
-                                           return $ Fix i n ty n' ty' tt
-constantFolding (IfZ i c t e) = do tc <- constantFolding c
-                                   tt <- constantFolding t
-                                   te <- constantFolding e
-                                   return $ IfZ i tc tt te            
-constantFolding (Let i n ty t t') = do tt <- constantFolding t
-                                       tt' <- constantFolding t'
-                                       return $ Let i n ty tt tt'
+constantFolding (BinaryOp i op t t') = 
+  do tt  <- constantFolding t
+     tt' <- constantFolding t'
+     case tt' of 
+       (Const _ (CNat m)) -> if m == 0 
+                             then return tt
+                             else do case tt of
+                                      (Const _ (CNat n)) -> return $ Const i $ CNat (semOp op n m) 
+                                      _ -> return $ BinaryOp i op tt tt'
+       _  -> return $ BinaryOp i op tt tt'
+constantFolding t = visitor constantFolding t
 
-constantPropagation :: MonadFD4 m => Term -> m Term  
-constantPropagation (Let i x xty t u) = do tu <- constantPropagation u
-                                           case t of 
-                                            c@(Const _ _) -> return $ Let i x xty t (subst c tu)
-                                            _ -> do tt <- constantPropagation t
-                                                    return $ Let i x xty tt tu
-constantPropagation t@(Const _ _) = return t
-constantPropagation t@(V _ _) = return t
-constantPropagation (Lam i n ty t) = do tt <- constantPropagation t
-                                        return $ Lam i n ty tt
-constantPropagation (App i t t') = do tt <- constantPropagation t
-                                      tt' <- constantPropagation t'
-                                      return $ App i tt tt'
-constantPropagation (Print i s t) = do tt <- constantPropagation t
-                                       return $ Print i s tt
-constantPropagation (BinaryOp i op t t') = do tt  <- constantPropagation t
-                                              tt' <- constantPropagation t'
-                                              return $ BinaryOp i op tt tt'                                       
-constantPropagation (Fix i n ty n' ty' t) = do tt <- constantPropagation t
-                                               return $ Fix i n ty n' ty' tt
-constantPropagation (IfZ i c t e) = do tc <- constantPropagation c
-                                       tt <- constantPropagation t
-                                       te <- constantPropagation e
-                                       return $ IfZ i tc tt te  
+constantPropagation :: MonadFD4 m => Term -> m Term 
+constantPropagation (Let i x xty t u) = 
+  do tt <- constantPropagation t
+     tu <- constantPropagation u
+     case tt of 
+      c@(Const _ _) -> return $ (subst c tu)
+      _ -> return $ Let i x xty tt tu
+constantPropagation t = visitor constantPropagation t
+
+-- commonSubElim :: MonadFD4 m => Term -> [Term] -> m (Term, [Term])
+-- commonSubElim (BinaryOp i op t t') = do (tt , xs) <- commonSubElim t
+--                                         (tt', ys) <- commonSubElim t'
+--                                         if not (hasPrint tt) && tt == tt'
+--                                         then return $ Let i  
+--                                         else  
+
+
+hasPrint :: Term -> Bool
+hasPrint (Print _ _ t     ) = True
+hasPrint (V _ _           ) = False
+hasPrint (Const _ _       ) = False
+hasPrint (Lam _ _ _ t     ) = hasPrint t
+hasPrint (App   _ l r     ) = hasPrint l || hasPrint r
+hasPrint (BinaryOp _ _ t u) = hasPrint t || hasPrint u
+hasPrint (Fix _ _ _ _ _ t ) = hasPrint t
+hasPrint (IfZ _ c t e     ) = hasPrint c || hasPrint t || hasPrint e
+hasPrint (Let _ _ _ e t   ) = hasPrint t
+
+visitor :: MonadFD4 m => (Term -> m Term) -> Term -> m Term
+visitor _ t@(Const _ _) = return t                                          
+visitor _ t@(V _ _) = return t
+visitor f (BinaryOp i op t t') = do tt  <- f t
+                                    tt' <- f t'
+                                    return $ BinaryOp i op tt tt'
+visitor f (Lam i n ty t) = do tt <- f t
+                              return $ Lam i n ty tt
+visitor f (App i t t') = do tt <- f t
+                            tt' <- f t'
+                            return $ App i tt tt'
+visitor f (Print i s t) = do tt <- f t
+                             return $ Print i s tt
+visitor f (Fix i n ty n' ty' t) = do tt <- f t
+                                     return $ Fix i n ty n' ty' tt
+visitor f (IfZ i c t e) = do tc <- f c
+                             tt <- f t
+                             te <- f e
+                             return $ IfZ i tc tt te            
+visitor f (Let i n ty t t') = do tt <- f t
+                                 tt' <- f t'
+                                 return $ Let i n ty tt tt'
