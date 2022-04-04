@@ -11,6 +11,7 @@ optimize t = do opt <- checkOptim
                 if opt then optimizeN n t
                        else return t
 
+-- foldr (>=>) return
 optimizeN :: MonadFD4 m => Int -> Term -> m Term
 optimizeN 0 t = return t
 optimizeN n t = do t1 <- constantFolding t
@@ -23,7 +24,7 @@ constantFolding (BinaryOp i op t t') =
   do tt  <- constantFolding t
      tt' <- constantFolding t'
      case tt' of 
-       (Const _ (CNat m)) -> if m == 0 
+       (Const _ (CNat m)) -> if m == 0 -- Hacer caso 0 y m aparte
                              then return tt
                              else do case tt of
                                       (Const _ (CNat n)) -> return $ Const i $ CNat (semOp op n m) 
