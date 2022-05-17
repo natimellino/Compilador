@@ -3,7 +3,7 @@ module Optimize ( optimize ) where
 import Lang
 import MonadFD4
 import Eval ( semOp )
-import Subst ( subst )
+import Subst ( subst, varChanger )
 
 optimize :: MonadFD4 m => Term -> m Term
 optimize t = do opt <- checkOptim
@@ -16,20 +16,28 @@ optimizeN :: MonadFD4 m => Int -> Term -> m Term
 optimizeN 0 t = return t
 optimizeN n t = do t1 <- constantFolding t
                    t2 <- constantPropagation t1
-                   if t2 /= t then optimizeN (n - 1) t2
+                   t3 <- inlineExpansion t2
+                   if t3 /= t then optimizeN (n - 1) t3
                               else return t
 
 constantFolding :: MonadFD4 m => Term -> m Term
 constantFolding (BinaryOp i op t t') = 
   do tt  <- constantFolding t
      tt' <- constantFolding t'
-     case tt' of 
-       (Const _ (CNat m)) -> if m == 0 -- Hacer caso 0 y m aparte
-                             then return tt
-                             else do case tt of
-                                      (Const _ (CNat n)) -> return $ Const i $ CNat (semOp op n m) 
-                                      _ -> return $ BinaryOp i op tt tt'
+     case (tt, tt', op) of 
+       (_, (Const _ (CNat 0)), _) -> return tt
+       ((Const _ (CNat 0)), _, Add) -> return tt'
+       ((Const _ (CNat n)), (Const _ (CNat m)), _) -> return $ Const i $ CNat (semOp op n m)
        _  -> return $ BinaryOp i op tt tt'
+constantFolding (IfZ i c t e) = 
+  do tc <- constantFolding c
+     tt <- constantFolding t
+     te <- constantFolding e
+     case tc of
+       (Const _ (CNat 0)) -> return tt
+       (Const _ (CNat _)) -> return te
+       _                  -> if tt == te then return tt
+                                         else return $ (IfZ i tc tt te)
 constantFolding t = visitor constantFolding t
 
 constantPropagation :: MonadFD4 m => Term -> m Term 
@@ -37,9 +45,41 @@ constantPropagation (Let i x xty t u) =
   do tt <- constantPropagation t
      tu <- constantPropagation u
      case tt of 
-      c@(Const _ _) -> return $ (subst c tu)
+      c@(Const _ _) -> return $ (subst' c tu)
       _ -> return $ Let i x xty tt tu
 constantPropagation t = visitor constantPropagation t
+
+--  Función alternativa a subst porque en constantPropagation estamos haciendo
+-- substitución con terminos fuera del scope actual. (Bound mayores a la profundidad)
+subst' :: Term -> Term -> Term
+subst' t = varChanger (\_ p n -> V p (Free n)) bnd
+   where ns = [t]
+         bnd depth p i 
+            | i <  depth = V p (Bound i)
+            | i >= depth && i < depth + nns
+               = nsr !! (i - depth)
+            | otherwise = V p (Bound $ i - 1)
+         nns = length ns
+         nsr = reverse ns
+
+inlineExpansion :: MonadFD4 m => Term -> m Term
+inlineExpansion (Let i x xty (Lam p f fty t) u) =
+  do tt <- inlineExpansion t
+     tu <- inlineExpansion u 
+     let nCalls = countCallsF f tu
+         sizeF = termSize tt
+     if sizeF <= 20 && nCalls < 5 
+     then return $ subst tt tu
+     else return $ (Let i x xty (Lam p f fty tt) tu)
+-- Falla con file3, error de tipo en runtime
+inlineExpansion (App i t u) =
+  do tt <- inlineExpansion t
+     tu <- inlineExpansion u
+     case tu of
+       (Const _ _) -> return $ subst tu tt
+       (V _ _) -> return $ subst tu tt
+       _ -> return $ App i t t
+inlineExpansion t = visitor inlineExpansion t
 
 -- commonSubElim :: MonadFD4 m => Term -> [Term] -> m (Term, [Term])
 -- commonSubElim (BinaryOp i op t t') = do (tt , xs) <- commonSubElim t
@@ -48,6 +88,11 @@ constantPropagation t = visitor constantPropagation t
 --                                         then return $ Let i  
 --                                         else  
 
+countCallsF :: Name -> Term -> Int
+countCallsF f t = 0
+
+termSize :: Term -> Int
+termSize t = 1
 
 hasPrint :: Term -> Bool
 hasPrint (Print _ _ t     ) = True
