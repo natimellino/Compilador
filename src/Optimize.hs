@@ -16,8 +16,7 @@ optimizeN :: MonadFD4 m => Int -> Term -> m Term
 optimizeN 0 t = return t
 optimizeN n t = do t1 <- constantFolding t
                    t2 <- constantPropagation t1
-                   t3 <- inlineExpansion t2
-                   if t3 /= t then optimizeN (n - 1) t3
+                   if t2 /= t then optimizeN (n - 1) t2
                               else return t
 
 constantFolding :: MonadFD4 m => Term -> m Term
@@ -62,37 +61,6 @@ subst' t = varChanger (\_ p n -> V p (Free n)) bnd
          nns = length ns
          nsr = reverse ns
 
-inlineExpansion :: MonadFD4 m => Term -> m Term
-inlineExpansion (Let i x xty (Lam p f fty t) u) =
-  do tt <- inlineExpansion t
-     tu <- inlineExpansion u 
-     let nCalls = countCallsF f tu
-         sizeF = termSize tt
-     if sizeF <= 20 && nCalls < 5 
-     then return $ subst tt tu
-     else return $ (Let i x xty (Lam p f fty tt) tu)
--- Falla con file3, error de tipo en runtime
-inlineExpansion (App i t u) =
-  do tt <- inlineExpansion t
-     tu <- inlineExpansion u
-     case tu of
-       (Const _ _) -> return $ subst tu tt
-       (V _ _) -> return $ subst tu tt
-       _ -> return $ App i t t
-inlineExpansion t = visitor inlineExpansion t
-
--- commonSubElim :: MonadFD4 m => Term -> [Term] -> m (Term, [Term])
--- commonSubElim (BinaryOp i op t t') = do (tt , xs) <- commonSubElim t
---                                         (tt', ys) <- commonSubElim t'
---                                         if not (hasPrint tt) && tt == tt'
---                                         then return $ Let i  
---                                         else  
-
-countCallsF :: Name -> Term -> Int
-countCallsF f t = 0
-
-termSize :: Term -> Int
-termSize t = 1
 
 hasPrint :: Term -> Bool
 hasPrint (Print _ _ t     ) = True
@@ -126,4 +94,4 @@ visitor f (IfZ i c t e) = do tc <- f c
                              return $ IfZ i tc tt te            
 visitor f (Let i n ty t t') = do tt <- f t
                                  tt' <- f t'
-                                 return $ Let i n ty tt tt'
+                                 return $ Let i n ty t tt'
