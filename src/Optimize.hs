@@ -94,4 +94,4 @@ visitor f (IfZ i c t e) = do tc <- f c
                              return $ IfZ i tc tt te            
 visitor f (Let i n ty t t') = do tt <- f t
                                  tt' <- f t'
-                                 return $ Let i n ty t tt'
+                                 return $ Let i n ty tt tt'
