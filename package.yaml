@@ -60,12 +60,27 @@ executables:
     - compiladores
 
 tests:
-  compiladores-test:
-    main:                Spec.hs
-    source-dirs:         test
+  # Bytecode Test Suite
+  Bytecode:
+    main: Byte.hs
+    source-dirs: test
     ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
+      - -main-is Byte
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
     dependencies:
-    - compiladores
+      - compiladores
+      - HTF
+  # C Backend Test Suite
+  C:
+    main: C.hs
+    source-dirs: test
+    ghc-options:
+      - -main-is C
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - compiladores
+      - HTF

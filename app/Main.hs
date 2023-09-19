@@ -39,6 +39,9 @@ import PPrint ( pp , ppTy, ppDecl )
 import MonadFD4
 import TypeChecker ( tc, tcDecl )
 import Bytecompile ( bytecompileModule, runBC, bcRead, bcWrite )
+import Optimize ( optimize )
+import ClosureConvert ( runCC )
+import C ( ir2C )
 
 prompt :: String
 prompt = "FD4> "
@@ -52,7 +55,7 @@ data Mode =
   | InteractiveCEK
   | Bytecompile 
   | RunVM
-  -- | CC
+  | CC
   -- | Canon
   -- | LLVM
   -- | Build
@@ -65,14 +68,11 @@ parseMode = (,) <$>
       <|> flag' Bytecompile (long "bytecompile" <> short 'm' <> help "Compilar a la BVM")
       <|> flag' RunVM (long "runVM" <> short 'r' <> help "Ejecutar bytecode en la BVM")
       <|> flag Interactive Interactive ( long "interactive" <> short 'i' <> help "Ejecutar en forma interactiva")
-  -- <|> flag' CC ( long "cc" <> short 'c' <> help "Compilar a código C")
-  -- <|> flag' Canon ( long "canon" <> short 'n' <> help "Imprimir canonicalización")
-  -- <|> flag' LLVM ( long "llvm" <> short 'l' <> help "Imprimir LLVM resultante")
-  -- <|> flag' Build ( long "build" <> short 'b' <> help "Compilar")
+      <|> flag' CC ( long "cc" <> short 'c' <> help "Compilar a código C")
       )
-   <*> pure False
+   -- <*> pure False
    -- reemplazar por la siguiente línea para habilitar opción
-   -- <*> flag False True (long "optimize" <> short 'o' <> help "Optimizar código")
+   <*> flag False True (long "optimize" <> short 'o' <> help "Optimizar código")
   
 -- | Parser de opciones general, consiste de un modo y una lista de archivos a procesar
 parseArgs :: Parser (Mode,Bool, [FilePath])
@@ -87,32 +87,24 @@ main = execParser opts >>= go
      <> header "Compilador de FD4 de la materia Compiladores 2021" )
 
     go :: (Mode,Bool,[FilePath]) -> IO ()
-    go (Interactive,_,files) = 
-              do runFD4 (runInputT defaultSettings (repl files Interactive))
+    go (Interactive,opt,files) = 
+              do runFD4 opt (runInputT defaultSettings (repl files Interactive))
                  return ()
     go (Typecheck,opt, files) =
-              runOrFail $ mapM_ (typecheckFile opt) files              
-    go (InteractiveCEK,_, files) =
-              do runFD4 (runInputT defaultSettings (repl files InteractiveCEK))
+              runOrFail opt $ mapM_ typecheckFile files              
+    go (InteractiveCEK,opt, files) =
+              do runFD4 opt (runInputT defaultSettings (repl files InteractiveCEK))
                  return ()
-    go (Bytecompile,_, files) =
-              runOrFail $ mapM_ bytecompileFile files
-    go (RunVM,_,files) =
-              runOrFail $ mapM_ bytecodeRun files
-    -- go (CC,_, files) =
-    --           runOrFail $ mapM_ ccFile files
-    -- go (Canon,_, files) =
-    --           runOrFail $ mapM_ canonFile files 
-    -- go (LLVM,_, files) =
-    --           runOrFail $ mapM_ llvmFile files
-    -- go (Build,_, files) =
-    --           runOrFail $ mapM_ buildFile files
+    go (Bytecompile,opt, files) =
+              runOrFail opt $ mapM_ bytecompileFile files
+    go (RunVM,opt,files) =
+              runOrFail opt $ mapM_ bytecodeRun files
+    go (CC,opt, files) =
+              runOrFail opt $ mapM_ ccFile files   
 
-                  
-
-runOrFail :: FD4 a -> IO a
-runOrFail m = do
-  r <- runFD4 m
+runOrFail :: Bool -> FD4 a -> IO a
+runOrFail b m = do
+  r <- runFD4 b m
   case r of
     Left err -> do
       liftIO $ hPrint stderr err
@@ -137,69 +129,6 @@ repl args mode = do
                        b <- lift $ catchErrors $ handleCommand c mode
                        maybe loop (`when` loop) b
 
-compileFiles ::  MonadFD4 m => [FilePath] -> Mode -> m ()
-compileFiles [] _        = return ()
-compileFiles (x:xs) mode = do
-        modify (\s -> s { lfile = x, inter = False })
-        compileFile x mode
-        compileFiles xs mode
-
-loadFile ::  MonadFD4 m => FilePath -> m [SDecl]
-loadFile f = do
-    let filename = reverse(dropWhile isSpace (reverse f))
-    x <- liftIO $ catch (readFile filename)
-               (\e -> do let err = show (e :: IOException)
-                         hPutStrLn stderr ("No se pudo abrir el archivo " ++ filename ++ ": " ++ err)
-                         return "")
-    setLastFile filename
-    parseIO filename program x
-
-compileFile ::  MonadFD4 m => FilePath -> Mode -> m ()
-compileFile f mode = do
-    decls <- loadFile f
-    mapM_ (\d -> handleDecl d mode) decls
-
-typecheckFile ::  MonadFD4 m => Bool -> FilePath -> m ()
-typecheckFile opt f = do
-    printFD4  ("Chequeando "++f)
-    decls <- loadFile f
-    ppterms <- mapM (desugarDecl >=> typecheckDecl >=> ppDecl) decls
-    mapM_ printFD4 ppterms
-
-parseIO ::  MonadFD4 m => String -> P a -> String -> m a
-parseIO filename p x = case runP p x filename of
-                  Left e  -> throwError (ParseErr e)
-                  Right r -> return r
-
-typecheckDecl :: MonadFD4 m => Decl NTerm -> m (Decl Term)
-typecheckDecl (Decl p x ty t) = do
-        t' <- elab t
-        let dd = (Decl p x ty t')
-        tcDecl dd
-        return dd
-
-handleDecl ::  MonadFD4 m => SDecl -> Mode -> m ()
-handleDecl (DeclSTy _ n t) _ = do ty <- desugarTy t
-                                  addSTy n ty
-handleDecl d m = case m of
-                    Interactive -> handleDeclBigS d
-                    InteractiveCEK -> handleDeclCEK d
-                    _ -> failFD4 "Modo inválido"
-
-handleDeclBigS ::  MonadFD4 m => SDecl -> m ()
-handleDeclBigS d = do decl <- desugarDecl d
-                      (Decl p x ty tt) <- typecheckDecl decl
-                      te <- eval tt 
-                      addDecl (Decl p x ty te)
-
-handleDeclCEK :: MonadFD4 m => SDecl -> m ()
-handleDeclCEK d = do decl <- desugarDecl d
-                     (Decl p x ty tt) <- typecheckDecl decl
-                     v <- search tt [] [] 
-                     te <- val2Term v 
-                     addDecl (Decl p x ty te)
-                  
-
 data Command = Compile CompileForm
              | PPrint String
              | Type String
@@ -213,26 +142,6 @@ data CompileForm = CompileInteractive  String
                  | CompileFile         String
 
 data InteractiveCommand = Cmd [String] String (String -> Command) String
-
--- | Parser simple de comando interactivos
-interpretCommand :: String -> IO Command
-interpretCommand x
-  =  if isPrefixOf ":" x then
-       do  let  (cmd,t')  =  break isSpace x
-                t         =  dropWhile isSpace t'
-           --  find matching commands
-           let  matching  =  filter (\ (Cmd cs _ _ _) -> any (isPrefixOf cmd) cs) commands
-           case matching of
-             []  ->  do  putStrLn ("Comando desconocido `" ++ cmd ++ "'. Escriba :? para recibir ayuda.")
-                         return Noop
-             [Cmd _ _ f _]
-                 ->  do  return (f t)
-             _   ->  do  putStrLn ("Comando ambigüo, podría ser " ++
-                                   concat (intersperse ", " [ head cs | Cmd cs _ _ _ <- matching ]) ++ ".")
-                         return Noop
-
-     else
-       return (Compile (CompileInteractive x))
 
 commands :: [InteractiveCommand]
 commands
@@ -255,6 +164,26 @@ helpTxt cs
                    let  ct = concat (intersperse ", " (map (++ if null a then "" else " " ++ a) c))
                    in   ct ++ replicate ((24 - length ct) `max` 2) ' ' ++ d) cs)
 
+-- | Parser simple de comando interactivos
+interpretCommand :: String -> IO Command
+interpretCommand x
+  =  if isPrefixOf ":" x then
+       do  let  (cmd,t')  =  break isSpace x
+                t         =  dropWhile isSpace t'
+           --  find matching commands
+           let  matching  =  filter (\ (Cmd cs _ _ _) -> any (isPrefixOf cmd) cs) commands
+           case matching of
+             []  ->  do  putStrLn ("Comando desconocido `" ++ cmd ++ "'. Escriba :? para recibir ayuda.")
+                         return Noop
+             [Cmd _ _ f _]
+                 ->  do  return (f t)
+             _   ->  do  putStrLn ("Comando ambigüo, podría ser " ++
+                                   concat (intersperse ", " [ head cs | Cmd cs _ _ _ <- matching ]) ++ ".")
+                         return Noop
+
+     else
+       return (Compile (CompileInteractive x))
+
 -- | 'handleCommand' interpreta un comando y devuelve un booleano
 -- indicando si se debe salir del programa o no.
 handleCommand ::  MonadFD4 m => Command -> Mode -> m Bool
@@ -275,6 +204,11 @@ handleCommand cmd mode = do
        PPrint e   -> printPhrase e >> return True
        Type e    -> typeCheckPhrase e >> return True
 
+parseIO ::  MonadFD4 m => String -> P a -> String -> m a
+parseIO filename p x = case runP p x filename of
+                  Left e  -> throwError (ParseErr e)
+                  Right r -> return r
+
 compilePhrase ::  MonadFD4 m => String -> Mode -> m ()
 compilePhrase x mode =
   do
@@ -294,7 +228,8 @@ handleTermBigS t = do  t' <- desugar t
                        tt <- elab t'
                        s <- get
                        ty <- tc tt (tyEnv s)
-                       te <- eval tt
+                       optt <- optimize tt
+                       te <- eval optt
                        ppte <- pp te
                        printFD4 (ppte ++ " : " ++ ppTy ty)
 
@@ -303,7 +238,8 @@ handleTermCEK t = do t' <- desugar t
                      tt <- elab t'
                      s <- get
                      ty <- tc tt (tyEnv s)
-                     v <- search tt [] []
+                     optt <- optimize tt
+                     v <- search optt [] []
                      te <- val2Term v
                      ppte <- pp te
                      printFD4 (ppte ++ " : " ++ ppTy ty)
@@ -333,27 +269,98 @@ typeCheckPhrase x = do
          ty <- tc tt (tyEnv s)
          printFD4 (ppTy ty)
 
+loadFile ::  MonadFD4 m => FilePath -> m [SDecl]
+loadFile f = do
+    let filename = reverse(dropWhile isSpace (reverse f))
+    x <- liftIO $ catch (readFile filename)
+               (\e -> do let err = show (e :: IOException)
+                         hPutStrLn stderr ("No se pudo abrir el archivo " ++ filename ++ ": " ++ err)
+                         return "")
+    setLastFile filename
+    parseIO filename program x
+
+compileFiles ::  MonadFD4 m => [FilePath] -> Mode -> m ()
+compileFiles [] _        = return ()
+compileFiles (x:xs) mode = do
+        modify (\s -> s { lfile = x, inter = False })
+        compileFile x mode
+        compileFiles xs mode
+
+compileFile ::  MonadFD4 m => FilePath -> Mode -> m ()
+compileFile f mode = do
+    decls <- loadFile f
+    mapM_ (\d -> handleDecl d mode) decls
+
+typecheckFile ::  MonadFD4 m => FilePath -> m ()
+typecheckFile f = do
+    printFD4  ("Chequeando " ++ f)
+    decls <- loadFile f
+    ppterms <- go decls
+    mapM_ printFD4 ppterms
+    where
+      go :: MonadFD4 m => [SDecl] -> m [String]
+      go [] = return []
+      go ((DeclSTy _ n t) : ds) = do ty <- desugarTy t
+                                     addSTy n ty
+                                     go ds
+      go (decl : ds) = do decl' <- desugarDecl >=> typecheckDecl $ decl
+                          opDecl <- optimizeDecl decl' 
+                          ppOpDecl <- ppDecl opDecl
+                          ds' <- go ds
+                          return $ ppOpDecl : ds'
+
+typecheckDecl :: MonadFD4 m => Decl NTerm -> m (Decl Term)
+typecheckDecl (Decl p x ty t) = do
+        tt <- elab t
+        let dd = (Decl p x ty tt)
+        tcDecl dd
+        return (Decl p x ty tt)
+
+handleDecl ::  MonadFD4 m => SDecl -> Mode -> m ()
+handleDecl (DeclSTy _ n t) _ = do ty <- desugarTy t
+                                  addSTy n ty
+handleDecl d m = case m of
+                    Interactive -> handleDeclBigS d
+                    InteractiveCEK -> handleDeclCEK d
+                    _ -> failFD4 "Modo inválido"
+
+handleDeclBigS ::  MonadFD4 m => SDecl -> m ()
+handleDeclBigS d = do decl <- desugarDecl d
+                      decl' <- typecheckDecl decl
+                      (Decl p x ty tt) <- optimizeDecl decl'
+                      te <- eval tt
+                      addDecl (Decl p x ty te)
+
+handleDeclCEK :: MonadFD4 m => SDecl -> m ()
+handleDeclCEK d = do decl <- desugarDecl d
+                     decl' <- typecheckDecl decl
+                     (Decl p x ty tt) <- optimizeDecl decl'
+                     v <- search tt [] [] 
+                     te <- val2Term v 
+                     addDecl (Decl p x ty te)
+
 -- Puede tener 2 puntos? Sí
 bytecompileFile :: MonadFD4 m => FilePath -> m ()
-bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
+bytecompileFile f = do -- printFD4 ("Abriendo "++f++"...")
                        let (name, ext) = splitExtension f
                        if ext /= ".fd4"
                        then failFD4 "Error al abrir el código fuente: extensión inválida."
                        else do sdecls <- loadFile f
                                decls <- go sdecls
-                               printFD4 "Compilando a BVM..."
+                               -- printFD4 "Compilando a BVM..."
                                bc <- bytecompileModule decls
-                               printFD4 "Escribiendo archivo..."
+                               -- printFD4 "Escribiendo archivo..."
                                liftIO $ bcWrite bc $ name ++ ".byte"
-                               printFD4 "Archivo compilado"                    
+                               -- printFD4 "Archivo compilado"                    
                     where go [] = return []
                           go (sd:xs) = case sd of
                                         (DeclSTy _ n t) -> do ty <- desugarTy t
                                                               addSTy n ty
                                                               go xs
-                                        _ -> do (Decl p x ty t) <- desugarDecl sd
-                                                t' <- elab t
-                                                let dd = (Decl p x ty t')
+                                        _ -> do decl <- desugarDecl sd
+                                                (Decl p x ty tt) <- typecheckDecl decl
+                                                optt <- optimize tt
+                                                let dd = (Decl p x ty optt)
                                                 xs' <- go xs
                                                 return (dd : xs')
 
@@ -365,4 +372,31 @@ bytecodeRun f = do printFD4 ("Abriendo "++f++"...")
                    else do bc <- liftIO $ bcRead f
                            printFD4("Corriendo programa")
                            runBC bc
-                   
+
+ccFile :: MonadFD4 m => FilePath -> m ()
+ccFile f = do -- printFD4 ("Abriendo "++f++"...")
+              let (name, ext) = splitExtension f
+              if ext /= ".fd4"
+              then failFD4 "Error al abrir el código fuente: extensión inválida."
+              else do sdecls <- loadFile f
+                      decls <- go sdecls
+                      -- printFD4 "Compilando a C..."
+                      let cc = (ir2C . runCC) decls
+                      -- printFD4 "Escribiendo archivo..."
+                      liftIO $ writeFile (name ++ ".c") cc
+                      -- printFD4 "Archivo compilado"                    
+              where go [] = return []
+                    go (sd:xs) = case sd of
+                                  (DeclSTy _ n t) -> do ty <- desugarTy t
+                                                        addSTy n ty
+                                                        go xs
+                                  _ -> do decl <- desugarDecl sd
+                                          (Decl p x ty tt) <- typecheckDecl decl
+                                          optt <- optimize tt
+                                          let dd = (Decl p x ty optt)
+                                          xs' <- go xs
+                                          return (dd : xs')
+
+optimizeDecl :: MonadFD4 m => Decl Term -> m (Decl Term)
+optimizeDecl (Decl p x ty t) = do optt <- optimize t
+                                  return (Decl p x ty optt)

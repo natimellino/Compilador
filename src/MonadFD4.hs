@@ -30,6 +30,10 @@ module MonadFD4 (
   addTy,
   addSTy,
   catchErrors,
+  setOptim,
+  checkOptim,
+  setOptimIters,
+  getOptimIters,
   MonadFD4,
   module Control.Monad.Except,
   module Control.Monad.State)
@@ -63,6 +67,7 @@ class (MonadIO m, MonadState GlEnv m, MonadError Error m) => MonadFD4 m where
 
 printFD4 :: MonadFD4 m => String -> m ()
 printFD4 = liftIO . putStrLn
+-- printFD4 s = return ()
 
 setLastFile :: MonadFD4 m => FilePath -> m ()
 setLastFile filename = modify (\s -> s {lfile = filename})
@@ -118,6 +123,18 @@ catchErrors c = catchError (Just <$> c)
                            (\e -> liftIO $ hPutStrLn stderr (show e) 
                               >> return Nothing)
 
+setOptim :: MonadFD4 m => Bool -> m ()
+setOptim b = modify (\s -> s {optim = b})
+
+checkOptim :: MonadFD4 m => m Bool
+checkOptim = gets optim
+
+setOptimIters :: MonadFD4 m => Int -> m ()
+setOptimIters n = modify (\s -> s {optimIters = n})
+
+getOptimIters :: MonadFD4 m => m Int
+getOptimIters = gets optimIters
+
 ----
 -- Importante, no eta-expandir porque GHC no hace una
 -- eta-contracción de sinónimos de tipos
@@ -132,8 +149,8 @@ type FD4 = StateT GlEnv (ExceptT Error IO)
 instance MonadFD4 FD4
 
 -- 'runFD4\'' corre una computación de la mónad 'FD4' en el estado inicial 'Global.initialEnv' 
-runFD4' :: FD4 a -> IO (Either Error (a, GlEnv))
-runFD4' c =  runExceptT $ runStateT c initialEnv
+runFD4' :: Bool -> FD4 a -> IO (Either Error (a, GlEnv))
+runFD4' b c =  runExceptT $ runStateT c $ initialEnv {optim = b}
 
-runFD4:: FD4 a -> IO (Either Error a)
-runFD4 c = fmap fst <$> runFD4' c
+runFD4:: Bool -> FD4 a -> IO (Either Error a)
+runFD4 b c = fmap fst <$> runFD4' b c

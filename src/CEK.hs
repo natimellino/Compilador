@@ -5,11 +5,12 @@ import Lang
 import Global ( GlEnv(..) )
 import MonadFD4 ( MonadFD4, lookupDecl, failFD4, printFD4 )
 import PPrint ( ppName )
+import Eval ( semOp )
 
 -- | Semántica de operadores binarios
-semOp :: BinaryOp -> Int -> Int -> Int
-semOp Add x y=  x + y
-semOp Sub x y = max 0 (x - y)
+-- semOp :: BinaryOp -> Int -> Int -> Int
+-- semOp Add x y=  x + y
+-- semOp Sub x y = max 0 (x - y)
 
 -- | Búsqueda en el entorno de valores
 lookupEnv :: Env -> Int -> Maybe CEKVal

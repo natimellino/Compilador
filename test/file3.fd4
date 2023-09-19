@@ -1,0 +1,2 @@
+let f (x : Nat) : Nat = x + 1
+let z : Nat = let y : Nat = f 3 in let x : Nat = 1 in x + y
