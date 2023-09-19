@@ -341,17 +341,17 @@ handleDeclCEK d = do decl <- desugarDecl d
 
 -- Puede tener 2 puntos? Sí
 bytecompileFile :: MonadFD4 m => FilePath -> m ()
-bytecompileFile f = do printFD4 ("Abriendo "++f++"...")
+bytecompileFile f = do -- printFD4 ("Abriendo "++f++"...")
                        let (name, ext) = splitExtension f
                        if ext /= ".fd4"
                        then failFD4 "Error al abrir el código fuente: extensión inválida."
                        else do sdecls <- loadFile f
                                decls <- go sdecls
-                               printFD4 "Compilando a BVM..."
+                               -- printFD4 "Compilando a BVM..."
                                bc <- bytecompileModule decls
-                               printFD4 "Escribiendo archivo..."
+                               -- printFD4 "Escribiendo archivo..."
                                liftIO $ bcWrite bc $ name ++ ".byte"
-                               printFD4 "Archivo compilado"                    
+                               -- printFD4 "Archivo compilado"                    
                     where go [] = return []
                           go (sd:xs) = case sd of
                                         (DeclSTy _ n t) -> do ty <- desugarTy t
@@ -374,17 +374,17 @@ bytecodeRun f = do printFD4 ("Abriendo "++f++"...")
                            runBC bc
 
 ccFile :: MonadFD4 m => FilePath -> m ()
-ccFile f = do printFD4 ("Abriendo "++f++"...")
+ccFile f = do -- printFD4 ("Abriendo "++f++"...")
               let (name, ext) = splitExtension f
               if ext /= ".fd4"
               then failFD4 "Error al abrir el código fuente: extensión inválida."
               else do sdecls <- loadFile f
                       decls <- go sdecls
-                      printFD4 "Compilando a C..."
+                      -- printFD4 "Compilando a C..."
                       let cc = (ir2C . runCC) decls
-                      printFD4 "Escribiendo archivo..."
+                      -- printFD4 "Escribiendo archivo..."
                       liftIO $ writeFile (name ++ ".c") cc
-                      printFD4 "Archivo compilado"                    
+                      -- printFD4 "Archivo compilado"                    
               where go [] = return []
                     go (sd:xs) = case sd of
                                   (DeclSTy _ n t) -> do ty <- desugarTy t
